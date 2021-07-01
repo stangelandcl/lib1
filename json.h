@@ -109,6 +109,9 @@ JSON_API const char *json_error(Json *p);
 #include <stdlib.h>
 #include <string.h>
 
+#define JSON_ERROR(msg) json_make_error(p, msg, sizeof msg)
+#define JSON_SUCCESS (p->s[p->n-1]='S',0)
+
 static int
 json_make_error(Json *p, const char *msg, size_t n) {
 	assert(p->n > 0);
@@ -118,14 +121,13 @@ json_make_error(Json *p, const char *msg, size_t n) {
 	return 0;
 }
 
-#define JSON_ERROR(msg) json_make_error(p, msg, sizeof msg)
 
 JSON_API const char*
 json_error(Json *p) {
 	assert(p->n > 0);
 	assert(p->n <= sizeof p->s / sizeof p->s[0]);
 	if(p->n <= 0) return "json.h: stack underflow";
-	if(p->s[p->n-1]) return p->p;
+	if(p->s[p->n-1] == 'E') return p->p;
 	return 0;
 }
 
@@ -195,7 +197,6 @@ json_null(Json *p, JsonTok *t, const char *text, int n) {
 
 static int
 json_any(Json *p, JsonTok *t) {
-	if(p->p == p->end || p->s[p->n-1] == 'E') return 0;
 	switch(*p->p) {
 	case '{':
 		if(!json_push(p, '{')) return 0;
@@ -247,14 +248,15 @@ json_next(Json *p, JsonTok *t) {
 	json_white(p);
 	assert(p->n > 0);
 	assert(p->n <= sizeof p->s / sizeof p->s[0]);
-	if(p->p == p->end) return 0;
+	if(p->p == p->end) return JSON_SUCCESS;
 	switch(p->s[p->n-1]) {
-	case 'e': return 0;
-	case 0: return json_any(p, t);
+	case 0:  /* starting state */
+		return json_any(p, t);
 	case '{':
 key:
 		assert(p->p <= p->end);
-		if(p->p == p->end) return 0;
+		if(p->p == p->end)
+			return JSON_ERROR("json.h: unterminated object");
 		if(*p->p == '}') {
 			++p->p;
 			--p->n;
@@ -275,6 +277,7 @@ key:
 			return JSON_ERROR("json.h: missing ':' separator");
 		++p->p;
 		json_white(p);
+		if(p->p == p->end) return JSON_ERROR("json.h: missing key-value pair value");
 		return json_any(p, t);
 	case ',':
 		--p->n;
@@ -300,9 +303,10 @@ key:
 			return JSON_ERROR("json.h: invalid next array value");
 		++p->p;
 		json_white(p);
+		if(p->p == p->end) return JSON_ERROR("json.h: missing next array value");
 		return json_any(p, t);
-	case 'E':
-		return 0; /* error state */
+	case 'E': return 0; /* error state */
+	case 'S': return 0; /* completed successfully state */
 	default:
 		assert(0);
 		return JSON_ERROR("json.h: invalid state");
