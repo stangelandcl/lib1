@@ -41,13 +41,11 @@ enum {
 /* parser. call json_init before using with json_next */
 typedef struct Json {
 	/* stack of objects/arrays and current state */
-	char s[128];
-	const char *p, *end;
-	int n; /* items in stack */
+	char s[127], n, *p, *end;
 } Json;
 
 typedef struct JsonTok {
-	const char *start, *end;
+	char *start, *end;
 	int type;
 } JsonTok;
 
@@ -58,8 +56,9 @@ typedef struct JsonTok {
 	 (((tok)->end - (tok)->start) == sizeof(literal) - 1) && \
 	 !memcmp((tok)->start, literal, sizeof(literal)-1))
 
-/* initialize parser with json text */
-JSON_API void json_init(Json *p, const char *json, size_t n);
+/* initialize parser with json text. json must be non-const.
+   string escapes are rewritten in place */
+JSON_API void json_init(Json *p, char *json, size_t n);
 /* malloc and return a C string of token.
    returns 0 on not a string or out of memory */
 JSON_API char* json_strdup(JsonTok*);
@@ -115,8 +114,8 @@ JSON_API const char *json_error(Json *p);
 static int
 json_make_error(Json *p, const char *msg, size_t n) {
 	assert(p->n > 0);
-	p->p = msg;
-	p->end = msg + n;
+	p->p = (char*)msg;
+	p->end = p->p + n;
 	p->s[p->n > 0 ? p->n - 1 : p->n++ ] = 'E';
 	return 0;
 }
@@ -140,25 +139,86 @@ json_white(Json *p) {
 }
 
 static int
+json_unicode(Json *p) {
+	int i, ch = 0;
+	for(i=4;i!=0;i--,p->p++) {
+		ch *= 16;
+		if(*p->p >= 'a' && *p->p <= 'f') ch += 10 + *p->p - 'a';
+		else if(*p->p >= 'A' && *p->p <= 'F') ch += 10 + *p->p - 'A';
+		else if(*p->p >= '0' && *p->p <= '9') ch += *p->p - '0';
+		else {
+			JSON_ERROR("json.h: invalid unicode hex");
+			return 0;
+		};
+	}
+	if(!ch) JSON_ERROR("json.h: null char in string");
+	return ch;
+}
+
+static int
 json_str(Json *p, JsonTok *t) {
+	char *d;
+	int ch, w1, w2;
+	int i;
+
 	assert(p->p < p->end);
-	t->start = ++p->p;
+	t->start = d = ++p->p;
 	while(p->p != p->end) {
-		if(*p->p == '\'') {
-			++p->p;
-			if(p->p == p->end)
+		if(*p->p == '\\') {
+			if(++p->p == p->end)
 				return JSON_ERROR("json.h: unterminated string");
-			if(*p->p == 'u') {
-				if(p->end - p->p < 5)
+			switch(*p->p++) {
+			default: return JSON_ERROR("json.h: invalid escape");
+			case '"': *d++ = '"'; break;
+			case '\\': *d++ = '\\'; break;
+			case 'n': *d++ = '\n'; break;
+			case 't': *d++ = '\t'; break;
+			case 'r': *d++ = '\r'; break;
+			case '/': *d++ = '/'; break;
+			case 'b': *d++ = 'b'; break;
+			case 'f': *d++ = 'f'; break;
+			case 'u':
+				if(p->end - p->p < 4)
 					return JSON_ERROR("json.h: invalid unicode escape");
-				p->p += 4;
+				if(!(ch = json_unicode(p))) return 0;
+				if(ch >= 0xD800 && ch <= 0xDBFF) {
+					if(p->end - p->p < 6)
+						return JSON_ERROR("json.h: unterminated surrogate pair");
+					if(*p->p++ != '\\' || *p->p++ != 'u')
+						return JSON_ERROR("json.h: missing surrogate pair");
+					w1 = ch - 0xD800;
+					if(!(ch = json_unicode(p))) return 0;
+					if(ch < 0xDC00 || ch > 0xDFFF)
+						return JSON_ERROR("json.h: invalid second surrogate pair");
+					w2 = ch - 0xDC00;
+					ch = 0x10000 + (w1 << 10) + w2;
+				}
+
+				if(ch < 0x80) *(unsigned char*)d++ = ch;
+				else if(ch < 0x800) {
+					*(unsigned char*)d++ = 0xC0 | (ch >> 6);
+					*(unsigned char*)d++ = 0x80 | (ch & 0x3F);
+				} else if(ch < 0x10000) {
+					*(unsigned char*)d++ = 0xE0 | (ch >> 12);
+					*(unsigned char*)d++ = 0x80 | ((ch >> 6) & 0x3F);
+					*(unsigned char*)d++ = 0x80 | (ch & 0x3F);
+				} else if(ch < 0x110000) {
+					*(unsigned char*)d++ = 0xF0 | (ch >> 18);
+					*(unsigned char*)d++ = 0x80 | ((ch >> 12) & 0x3F);
+					*(unsigned char*)d++ = 0x80 | ((ch >> 6) & 0x3F);
+					*(unsigned char*)d++ = 0x80 | (ch & 0x3F);
+				} else {
+					*(unsigned char*)d++ = 0xEF;
+					*(unsigned char*)d++ = 0xBF;
+					*(unsigned char*)d++ = 0xBD;
+				}
 			}
-		}
-		else if(*p->p == '"') break;
-		++p->p;
+		} else if(*p->p == '"') break;
+		else *d++ = *p->p++;
 	}
 	if(p->p == p->end) return JSON_ERROR("json.h: unterminated string");
-	t->end = p->p++;
+	++p->p;
+	t->end = d;
 	t->type = JSON_STRING;
 	assert(p->p <= p->end);
 	return 1;
@@ -315,11 +375,11 @@ key:
 }
 
 JSON_API void
-json_init(Json *p, const char *json, size_t n) {
-	p->p = json;
-	p->end = json + n;
+json_init(Json *p, char *json, size_t n) {
 	p->s[0] = 0;
 	p->n = 1;
+	p->p = json;
+	p->end = json + n;
 }
 
 JSON_API char*
@@ -344,8 +404,7 @@ json_bool(JsonTok *t) {
 
 JSON_API int64_t
 json_int(JsonTok *t) {
-	const char *p = t->start;
-	const char *e = t->end;
+	char *p = t->start, *e = t->end;
 	int64_t i = 0, s = 1;
 
 	if(p != e) {
@@ -357,8 +416,7 @@ json_int(JsonTok *t) {
 }
 JSON_API double
 json_float(JsonTok *t) {
-	const char *p = t->start;
-	const char *e = t->end;
+	char *p = t->start, *e = t->end;
 	int64_t i = 0, j=0, jj=1, k=0, s = 1, ks=1;
 	double f = 0.0;
 	if(p != e) {
@@ -417,8 +475,9 @@ json_array(Json *p, JsonTok *t) {
 
 #if JSON_EXAMPLE
 #include <stdio.h>
+#include <string.h>
 int main() {
-	const char json[] =
+	char json[] =
 		"{\n"
 		"\"a_key\":\"a value\",\n"
 		"\"values\":\n"
@@ -429,7 +488,7 @@ int main() {
 		"       \"count\":49991 },\n"
 		"      {\"stat\": null,\n"
 		"       \"flag\":true,\n"
-		"       \"status\":\"done\",\n"
+		"       \"status\":\"\\uD83D\\ude03 done\",\n"
 		"       \"count\": -10 }\n"
 		"  ],\n"
 		"}";
@@ -497,9 +556,13 @@ int main() {
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t n) {
 	Json p;
 	JsonTok t;
-	json_init(&p, (const char*)data, n);
+	char *s = malloc(n);
+	assert(s);
+	memcpy(s, data, n);
+	json_init(&p, s, n);
 	while(json_next(&p, &t)) {}
-        return 0;
+        free(s);
+	return 0;
 }
 #endif
 

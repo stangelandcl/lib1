@@ -12,10 +12,11 @@ Faster than jsmn and cJSON using much less memory.
 Example from the bottom of [json.h](json.h). Search JSON\_EXAMPLE.
 ```c
 #define JSON_STATIC
-#include "json.h"
+#include "json.h>
 #include <stdio.h>
+#include <string.h>
 int main() {
-	const char json[] =
+	char json[] =
 		"{\n"
 		"\"a_key\":\"a value\",\n"
 		"\"values\":\n"
@@ -26,7 +27,7 @@ int main() {
 		"       \"count\":49991 },\n"
 		"      {\"stat\": null,\n"
 		"       \"flag\":true,\n"
-		"       \"status\":\"done\",\n"
+		"       \"status\":\"\\uD83D\\ude03 done\",\n"
 		"       \"count\": -10 }\n"
 		"  ],\n"
 		"}";
