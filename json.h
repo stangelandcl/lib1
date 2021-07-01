@@ -1,15 +1,15 @@
 #ifndef JSON_H
 #define JSON_H
 
-/* 
+/*
    From https://github.com/stangelandcl/lib1/json.h
    Zero memory overhead iterative json parser
    license and example at end of file. Search for JSON_EXAMPLE
 
    #define JSON_IMPLEMENTATION in one .C file before including json.h.
    Use json.h in other files normally.
-   Alternatively define JSON_STATIC before each use of json.h for 
-   static definitions 
+   Alternatively define JSON_STATIC before each use of json.h for
+   static definitions
 
 */
 
@@ -51,16 +51,16 @@ typedef struct JsonTok {
 	int type;
 } JsonTok;
 
-/* compare JsonTok tok to string literal and return 1 if 
+/* compare JsonTok tok to string literal and return 1 if
    tok is a string and matches the literal */
-#define JSON_STR(tok, literal) \
+#define JSON_EQ(tok, literal) \
 	((tok)->type == JSON_STRING && \
 	 (((tok)->end - (tok)->start) == sizeof(literal) - 1) && \
 	 !memcmp((tok)->start, literal, sizeof(literal)-1))
 
 /* initialize parser with json text */
 JSON_API void json_init(Json *p, const char *json, size_t n);
-/* malloc and return a C string of token. 
+/* malloc and return a C string of token.
    returns 0 on not a string or out of memory */
 JSON_API char* json_strdup(JsonTok*);
 /* return 1 on JsonTok == true or 0 otherwise */
@@ -77,23 +77,22 @@ JSON_API int64_t json_int(JsonTok*);
    always call this function as part of every if chaining dealing
    with tokens. It is safe to call whether JsonTok is actually
    a composite or not */
-JSON_API int json_composite(JsonTok*); 
+JSON_API int json_composite(JsonTok*);
 /* skip to end of current object or array. This only works
    if the parser is at start of object or array,
    last token from json_next was JSON_OBJECT or JSON_ARRAY.
    Otherwise will mess up parsing and lead to invalid state */
 JSON_API int json_skip(Json*p);
-/* iterate a key-value pair in a json object. 
+/* iterate a key-value pair in a json object.
    return 1 on have key, value or 0 on end of object or error */
 JSON_API int json_object(Json *p, JsonTok *k, JsonTok *v);
 /* iterate array value until error, or end of json array.
    return 1 on have item. 0 on end of array or error */
 JSON_API int json_array(Json *p, JsonTok *t);
-/* skip to end of composite object if token, 
-   which should be the last token returned from 
-   json_next, json_array or value part of json_object,
-   is start of array or object */
-JSON_API int json_skip_composite(Json *p, JsonTok *t);
+/* skip to end of composite object if at the start
+   of an object or array else do nothing.
+   return 1 if skipped to end. 0 if didn't move */
+JSON_API int json_skip(Json *p);
 
 #ifdef __cplusplus
 }
@@ -114,17 +113,17 @@ JSON_API int json_skip_composite(Json *p, JsonTok *t);
 	p->s[p->n-1] = 'E'; \
 	/* printf("Error at %s:%d\n", __FILE__, __LINE__); */ \
 	return 0; \
-} while(0) 
+} while(0)
 
-static void 
+static void
 json_white(Json *p) {
 	assert(p->p <= p->end);
-	while(p->p != p->end && 
-	     (*p->p == ' ' || *p->p == '\t' || *p->p == '\n' || *p->p == '\r')) 
+	while(p->p != p->end &&
+	     (*p->p == ' ' || *p->p == '\t' || *p->p == '\n' || *p->p == '\r'))
 	     ++p->p;
 }
 
-static int 
+static int
 json_str(Json *p, JsonTok *t) {
 	assert(p->p < p->end);
 	if(*p->p != '"') JSON_ERROR();
@@ -151,7 +150,7 @@ json_str(Json *p, JsonTok *t) {
 /* add item char to stack. retrun 1 on success.
    set to error and return 0 on out of stack space
    or invalid state char */
-static int 
+static int
 json_push(Json *p, char c) {
 	assert(p->n > 0);
 	switch(c) {
@@ -160,7 +159,7 @@ json_push(Json *p, char c) {
 			p->s[p->n++] = c;
 			return 1;
 		}
-	}	
+	}
 	p->s[p->n-1] = 'E';
 	return 0;
 }
@@ -174,11 +173,11 @@ json_null(Json *p, JsonTok *t, const char *text, int n) {
 	p->p += n;
 	t->end = p->p;
 	t->type = *text == 'n' ? JSON_NULL : JSON_BOOL;
-	assert(p->p <= p->end);		
+	assert(p->p <= p->end);
 	return 1;
 }
 
-static int 
+static int
 json_any(Json *p, JsonTok *t) {
 	if(p->p == p->end || p->s[p->n-1] == 'E') return 0;
 	switch(*p->p) {
@@ -187,7 +186,7 @@ json_any(Json *p, JsonTok *t) {
 		t->start = t->end = 0;
 		t->type = JSON_OBJECT;
 		++p->p;
-		assert(p->p <= p->end);	
+		assert(p->p <= p->end);
 		return 1;
 	case '[':
 		if(!json_push(p, '[')) return 0;
@@ -210,7 +209,7 @@ json_any(Json *p, JsonTok *t) {
 			if(p->p != p->end && (*p->p == '-' || *p->p == '+')) ++p->p;
 			while(p->p != p->end && *p->p >= '0' && *p->p <= '9') ++p->p;
 		}
-		
+
 		t->end = p->p;
 		t->type = JSON_NUMBER;
 		assert(p->p <= p->end);
@@ -225,7 +224,7 @@ json_any(Json *p, JsonTok *t) {
 	return 0;
 }
 
-JSON_API int 
+JSON_API int
 json_next(Json *p, JsonTok *t) {
 	int rc;
 	assert(p->p <= p->end);
@@ -236,9 +235,9 @@ json_next(Json *p, JsonTok *t) {
 	switch(p->s[p->n-1]) {
 	case 'e': return 0;
 	case 0: return json_any(p, t);
-	case '{': 
+	case '{':
 key:
-		assert(p->p <= p->end);	
+		assert(p->p <= p->end);
 		if(p->p == p->end) return 0;
 		if(*p->p == '}') {
 			++p->p;
@@ -266,7 +265,7 @@ key:
 			goto key;
 		}
 		if(*p->p == '}') goto key;
-		JSON_ERROR();		
+		JSON_ERROR();
 		break;
 	case '[':
 		p->s[p->n-1] = ';';
@@ -282,7 +281,7 @@ key:
 		++p->p;
 		json_white(p);
 		return json_any(p, t);
-	case 'E': 
+	case 'E':
 		return 0; /* error state */
 	default:
 		assert(0);
@@ -291,7 +290,7 @@ key:
 	return 0;
 }
 
-JSON_API void 
+JSON_API void
 json_init(Json *p, const char *json, size_t n) {
 	p->p = json;
 	p->end = json + n;
@@ -299,7 +298,7 @@ json_init(Json *p, const char *json, size_t n) {
 	p->n = 1;
 }
 
-JSON_API char* 
+JSON_API char*
 json_strdup(JsonTok *t) {
 	char *c;
 	size_t n;
@@ -312,14 +311,14 @@ json_strdup(JsonTok *t) {
 	return c;
 }
 
-JSON_API int 
+JSON_API int
 json_bool(JsonTok *t) {
 	int n = t->end - t->start;
 	/* check for 4 in case this is actually a non-bool token */
 	return n == 4 && t->start[0] == 't';
 }
 
-JSON_API int64_t 
+JSON_API int64_t
 json_int(JsonTok *t) {
 	const char *p = t->start;
 	const char *e = t->end;
@@ -328,24 +327,24 @@ json_int(JsonTok *t) {
 	if(p != e) {
 		if(*p == '-') { ++p; s = -1; } /* sign */
 		for(;p != e && *p>='0' && *p<='9';++p) /* int */
-			i = i * 10 + (*p - '0');		
+			i = i * 10 + (*p - '0');
 	}
 	return i * s;
 }
-JSON_API double 
+JSON_API double
 json_float(JsonTok *t) {
 	const char *p = t->start;
 	const char *e = t->end;
 	int64_t i = 0, j=0, jj=1, k=0, s = 1, ks=1;
 	double f = 0.0;
-	if(p != e) {		
+	if(p != e) {
 		if(*p == '-') {++p; s = -1; } /* sign */
 		for(;p != e && *p>='0' && *p<='9';++p) /* int */
 			i = i * 10 + (*p - '0');
 		f = (double)(i * s);
 		if(p != e && *p == '.') { /* fraction */
-			for(++p;p != e && *p>='0' && *p<='9';++p) {		
-				j = j * 10 + (*p - '0');	
+			for(++p;p != e && *p>='0' && *p<='9';++p) {
+				j = j * 10 + (*p - '0');
 				jj *= 10;
 			}
 			f += (double)j  / (double)jj;
@@ -357,7 +356,7 @@ json_float(JsonTok *t) {
 					ks = -1;
 					++p;
 				}
-				for(;p != e && *p>='0' && *p<='9';++p)					
+				for(;p != e && *p>='0' && *p<='9';++p)
 					k = k * 10 + (*p - '0');
 				f *= pow(10, (double)(k * ks));
 			}
@@ -366,43 +365,36 @@ json_float(JsonTok *t) {
 	return f;
 }
 
-JSON_API int 
-json_composite(JsonTok *t) { 
+JSON_API int
+json_composite(JsonTok *t) {
 	return t->type == JSON_OBJECT || t->type == JSON_ARRAY;
 }
 
-JSON_API int 
+JSON_API int
 json_skip(Json *p) {
 	int n = p->n, rc;
 	JsonTok t;
-	assert(p->s[p->n-1] == '{' || p->s[p->n-1] == '[');
+	if(p->s[p->n-1] != '{' && p->s[p->n-1] != '[') return 0;
 	while(p->n >= n && ((rc = json_next(p, &t))));
 	assert(!rc || t.type == JSON_OBJECT_END || t.type == JSON_ARRAY_END);
 	return rc;
 }
 
-JSON_API int 
-json_skip_composite(Json *p, JsonTok *t) {
-	int rc = json_composite(t);
-	if(rc) json_skip(p);
-	return rc;
-}
-
-JSON_API int 
+JSON_API int
 json_object(Json *p, JsonTok *k, JsonTok *v) {
 	if(!json_next(p, k) || k->type == JSON_OBJECT_END) return 0;
 	return json_next(p, v);
 }
 
-JSON_API int 
+JSON_API int
 json_array(Json *p, JsonTok *t) {
-	return json_next(p, t) && t->type != JSON_ARRAY_END;	
+	return json_next(p, t) && t->type != JSON_ARRAY_END;
 }
 
 #if JSON_EXAMPLE
 #include <stdio.h>
 int main() {
-	const char json[] = 
+	const char json[] =
 		"{\n"
 		"\"a_key\":\"a value\",\n"
 		"\"values\":\n"
@@ -420,42 +412,43 @@ int main() {
 	Json p;
 	JsonTok t, k, v;
 	struct Val { double stat; int flag; char *status; int count; };
-	struct Val vals[100];
+	struct Val vals[100], val;
 	int nvals = 0, i;
 
 	printf("parsing:\n%s\n", json);
 
 	json_init(&p, json, sizeof json - 1);
 	while(json_next(&p, &t)) {
-
-		/* always handle all possible object/array values. 
+		/* always handle all possible object/array values.
 		   primitives are automatically skipped but arrays and objects
-		   must be manually skipped. The simplest rule is 
-		   always call json_skip_composite() as part of every
-		   if statement chain. It is safe to call whether 
+		   must be manually skipped. The simplest rule is
+		   always call json_skip() as part of every
+		   if statement chain. It is safe to call whether
 		   token is actually a composite type or not */
-		if(t.type != JSON_OBJECT) json_skip_composite(&p, &t);
+		if(t.type != JSON_OBJECT) json_skip(&p);
 		else while(json_object(&p, &k, &v)) {
-			if(!JSON_STR(&k, "values") || v.type != JSON_ARRAY)
-				json_skip_composite(&p, &v);
+			if(!JSON_EQ(&k, "values") || v.type != JSON_ARRAY)
+				json_skip(&p);
 			else while(json_array(&p, &t)) {
-				if(t.type != JSON_OBJECT) json_skip_composite(&p, &t);
-				else {
-					struct Val val = {0};
-					while(json_object(&p, &k, &v)) {
-						if(JSON_STR(&k, "stat")) 
-							val.stat = json_float(&v);									
-						else if(JSON_STR(&k, "flag")) 
-							val.flag = json_bool(&v);									
-						else if(JSON_STR(&k, "status")) 
-							val.status = json_strdup(&v);
-						else if(JSON_STR(&k, "count")) 
-							val.count = (int)json_int(&v);
-						else json_skip_composite(&p, &v); /* always call this
-						function in if chains */		
-					}
-					vals[nvals++] = val;
+				if(t.type != JSON_OBJECT) {
+					json_skip(&p);
+					continue;
 				}
+
+				memset(&val, 0, sizeof val);
+				while(json_object(&p, &k, &v)) {
+					if(JSON_EQ(&k, "stat"))
+						val.stat = json_float(&v);
+					else if(JSON_EQ(&k, "flag"))
+						val.flag = json_bool(&v);
+					else if(JSON_EQ(&k, "status"))
+						val.status = json_strdup(&v);
+					else if(JSON_EQ(&k, "count"))
+						val.count = (int)json_int(&v);
+					else json_skip(&p); /* always call this
+					function in if chains */
+				}
+				vals[nvals++] = val;
 			}
 		}
 	}
@@ -463,7 +456,7 @@ int main() {
 	printf("parsed %d values\n", nvals);
 	for(i=0;i<nvals;i++) {
 		struct Val *v = &vals[i];
-		printf("i=%d stat=%f flag=%s status=%s count=%d\n", 
+		printf("i=%d stat=%f flag=%s status=%s count=%d\n",
 			i, v->stat, v->flag ? "true" : "false", v->status, v->count);
 	}
 
@@ -481,7 +474,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t n) {
 }
 #endif
 
-/* 
+/*
 ------------------------------------------------------------------------------
 This software is available under 2 licenses -- choose whichever you prefer.
 ------------------------------------------------------------------------------
