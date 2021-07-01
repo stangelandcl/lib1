@@ -109,14 +109,25 @@ JSON_API const char *json_error(Json *p);
 #include <string.h>
 
 #define JSON_ERROR(msg) json_make_error(p, msg, sizeof msg)
-#define JSON_SUCCESS (p->s[p->n-1]='S',0)
+#define JSON_SUCCESS (p->s[p->n-1]=JSON_S_DONE,0)
+
+enum {
+	JSON_S_START,
+	JSON_S_OBJECT,
+	JSON_S_KEY,
+	JSON_S_VALUE,
+	JSON_S_ARRAY,
+	JSON_S_ELEMENT,
+	JSON_S_ERROR,
+	JSON_S_DONE
+};
 
 static int
 json_make_error(Json *p, const char *msg, size_t n) {
 	assert(p->n > 0);
 	p->p = (char*)msg;
 	p->end = p->p + n;
-	p->s[p->n > 0 ? p->n - 1 : p->n++ ] = 'E';
+	p->s[p->n > 0 ? p->n - 1 : p->n++ ] = JSON_S_ERROR;
 	return 0;
 }
 
@@ -126,7 +137,7 @@ json_error(Json *p) {
 	assert(p->n > 0);
 	assert(p->n <= sizeof p->s / sizeof p->s[0]);
 	if(p->n <= 0) return "json.h: stack underflow";
-	if(p->s[p->n-1] == 'E') return p->p;
+	if(p->s[p->n-1] == JSON_S_ERROR) return p->p;
 	return 0;
 }
 
@@ -239,14 +250,12 @@ json_str(Json *p, JsonTok *t) {
 static int
 json_push(Json *p, char c) {
 	assert(p->n > 0);
-	switch(c) {
-	case '{':case ':':case ',':case '[':case ';':case 'E':
-		if(p->n < sizeof p->s / sizeof p->s[0]) {
+	if(c > JSON_S_START && c <= JSON_S_DONE &&
+	   p->n < sizeof p->s / sizeof p->s[0]) {
 			p->s[p->n++] = c;
 			return 1;
-		}
 	}
-	p->s[p->n-1] = 'E';
+	p->s[p->n-1] = JSON_S_ERROR;
 	return 0;
 }
 
@@ -268,14 +277,14 @@ static int
 json_any(Json *p, JsonTok *t) {
 	switch(*p->p) {
 	case '{':
-		if(!json_push(p, '{')) return 0;
+		if(!json_push(p, JSON_S_OBJECT)) return 0;
 		t->start = t->end = 0;
 		t->type = JSON_OBJECT;
 		++p->p;
 		assert(p->p <= p->end);
 		return 1;
 	case '[':
-		if(!json_push(p, '[')) return 0;
+		if(!json_push(p, JSON_S_ARRAY)) return 0;
 		t->start = t->end = 0;
 		t->type = JSON_ARRAY;
 		++p->p;
@@ -319,9 +328,9 @@ json_next(Json *p, JsonTok *t) {
 	assert(p->n <= sizeof p->s / sizeof p->s[0]);
 	if(p->p == p->end) return JSON_SUCCESS;
 	switch(p->s[p->n-1]) {
-	case 0:  /* starting state */
+	case JSON_S_START:  /* starting state */
 		return json_any(p, t);
-	case '{':
+	case JSON_S_OBJECT:
 key:
 		assert(p->p <= p->end);
 		if(p->p == p->end)
@@ -337,18 +346,18 @@ key:
 		if(!json_str(p, t)) return 0;
 		assert(p->n > 0);
 		assert(p->n <= sizeof p->s / sizeof p->s[0]);
-		if(!json_push(p, ':')) return 0;
+		if(!json_push(p, JSON_S_KEY)) return 0;
 		assert(p->p <= p->end);
 		return 1;
-	case ':':
-		p->s[p->n-1] = ',';
+	case JSON_S_KEY:
+		p->s[p->n-1] = JSON_S_VALUE;
 		if(*p->p != ':')
 			return JSON_ERROR("json.h: missing ':' separator");
 		++p->p;
 		json_white(p);
 		if(p->p == p->end) return JSON_ERROR("json.h: missing key-value pair value");
 		return json_any(p, t);
-	case ',':
+	case JSON_S_VALUE:
 		--p->n;
 		if(*p->p == ',') {
 			++p->p;
@@ -358,10 +367,10 @@ key:
 		if(*p->p == '}') goto key;
 		JSON_ERROR("json.h: invalid next object value");
 		break;
-	case '[':
-		p->s[p->n-1] = ';';
+	case JSON_S_ARRAY:
+		p->s[p->n-1] = JSON_S_ELEMENT;
 		return json_any(p, t);
-	case ';':
+	case JSON_S_ELEMENT:
 		if(*p->p == ']') {
 			++p->p;
 			--p->n;
@@ -374,8 +383,8 @@ key:
 		json_white(p);
 		if(p->p == p->end) return JSON_ERROR("json.h: missing next array value");
 		return json_any(p, t);
-	case 'E': return 0; /* error state */
-	case 'S': return 0; /* completed successfully state */
+	case JSON_S_ERROR: return 0; /* error state */
+	case JSON_S_DONE: return 0; /* completed successfully state */
 	default:
 		assert(0);
 		return JSON_ERROR("json.h: invalid state");
@@ -385,7 +394,7 @@ key:
 
 JSON_API void
 json_init(Json *p, char *json, size_t n) {
-	p->s[0] = 0;
+	p->s[0] = JSON_S_START;
 	p->n = 1;
 	p->p = json;
 	p->end = json + n;
@@ -465,7 +474,7 @@ JSON_API int
 json_skip(Json *p) {
 	int n = p->n, rc;
 	JsonTok t;
-	if(p->s[p->n-1] != '{' && p->s[p->n-1] != '[') return 0;
+	if(p->s[p->n-1] != JSON_S_OBJECT && p->s[p->n-1] != JSON_S_ARRAY) return 0;
 	while(p->n >= n && ((rc = json_next(p, &t))));
 	assert(!rc || t.type == JSON_OBJECT_END || t.type == JSON_ARRAY_END);
 	return rc;
