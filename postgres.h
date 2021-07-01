@@ -2,8 +2,8 @@
 #define PG_H
 
 /*
-  	public domain license at the bottom
- 	example at the bottom under #ifdef PG_EXAMPLE
+   	From https://github.com/stangelandcl/lib1/postgres.h
+  	License and example at bottom of file. Search PG_EXAMPLE.
 
 	postgres driver only handles text format queries and 
 	md5 authentication

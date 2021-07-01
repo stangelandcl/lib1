@@ -1,7 +1,9 @@
 #ifndef JSON_H
 #define JSON_H
 
-/* Zero memory overhead iterative json parser
+/* 
+   From https://github.com/stangelandcl/lib1/json.h
+   Zero memory overhead iterative json parser
    license and example at end of file. Search for JSON_EXAMPLE
 
    #define JSON_IMPLEMENTATION in one .C file before including json.h.
@@ -436,7 +438,6 @@ int main() {
 		   token is actually a composite type or not */
 		if(t.type != JSON_OBJECT) json_skip_composite(&p, &t);
 		else while(json_object(&p, &k, &v)) {
-
 			if(!JSON_STR(&k, "values") || v.type != JSON_ARRAY)
 				json_skip_composite(&p, &v);
 			else while(json_array(&p, &t)) {

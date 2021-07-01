@@ -1,7 +1,8 @@
 ## lib1
 Public domain single file C libraries in the vein of https://github.com/nothings/stb.
 
-- [json.h](json.h) - tiny iterative zero memory overhead JSON parser.
+- [json.h](json.h) - tiny iterative zero memory overhead JSON parser. 
+Faster than jsmn and cJSON using much less memory.
 - [md5.h](md5.h) - small md5 hash function
 - [postgres.h](postgres.h) - minimal postgres driver handling text protocol queries and md5
   password authentication only
@@ -48,7 +49,6 @@ int main() {
 		   token is actually a composite type or not */
 		if(t.type != JSON_OBJECT) json_skip_composite(&p, &t);
 		else while(json_object(&p, &k, &v)) {
-
 			if(!JSON_STR(&k, "values") || v.type != JSON_ARRAY)
 				json_skip_composite(&p, &v);
 			else while(json_array(&p, &t)) {

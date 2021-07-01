@@ -1,10 +1,12 @@
 #ifndef HAVE_MD5_H
 #define HAVE_MD5_H
 
-/* license at end of file.
- * #define MD5_IMPLEMENTATION in one file unless
- * MD5_STATIC is defined then it can be used in multiple files
- * Example at end of file. Search for MD5_EXAMPLE
+/* 
+   From https://github.com/stangelandcl/lib1/md5.h
+   License and example at end of file. Search MD5_EXAMPLE
+   #define MD5_IMPLEMENTATION in one file unless
+   MD5_STATIC is defined then it can be used in multiple files
+   Example at end of file. Search for MD5_EXAMPLE
  * */
 
 #if defined(MD5_STATIC) || defined(MD5_EXAMPLE)
