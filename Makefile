@@ -1,5 +1,8 @@
 all: json md5 postgres postgres_win
 
+cloc:
+	cloc .
+
 json:
 	$(CC) -x c -O0 -ggdb3 -DJSON_EXAMPLE json.h && ./a.out
 
