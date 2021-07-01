@@ -93,6 +93,8 @@ JSON_API int json_array(Json *p, JsonTok *t);
    of an object or array else do nothing.
    return 1 if skipped to end. 0 if didn't move */
 JSON_API int json_skip(Json *p);
+/* returns text if parser is in error state or null if not */
+JSON_API const char *json_error(Json *p);
 
 #ifdef __cplusplus
 }
@@ -107,13 +109,25 @@ JSON_API int json_skip(Json *p);
 #include <stdlib.h>
 #include <string.h>
 
-/* set to error state, log if in debug mode ond return 0 */
-#define JSON_ERROR() do { \
-	assert(p->n > 0); \
-	p->s[p->n-1] = 'E'; \
-	/* printf("Error at %s:%d\n", __FILE__, __LINE__); */ \
-	return 0; \
-} while(0)
+static int
+json_make_error(Json *p, const char *msg, size_t n) {
+	assert(p->n > 0);
+	p->p = msg;
+	p->end = msg + n;
+	p->s[p->n > 0 ? p->n - 1 : p->n++ ] = 'E';
+	return 0;
+}
+
+#define JSON_ERROR(msg) json_make_error(p, msg, sizeof msg)
+
+JSON_API const char*
+json_error(Json *p) {
+	assert(p->n > 0);
+	assert(p->n <= sizeof p->s / sizeof p->s[0]);
+	if(p->n <= 0) return "json.h: stack underflow";
+	if(p->s[p->n-1]) return p->p;
+	return 0;
+}
 
 static void
 json_white(Json *p) {
@@ -126,21 +140,22 @@ json_white(Json *p) {
 static int
 json_str(Json *p, JsonTok *t) {
 	assert(p->p < p->end);
-	if(*p->p != '"') JSON_ERROR();
 	t->start = ++p->p;
 	while(p->p != p->end) {
 		if(*p->p == '\'') {
 			++p->p;
-			if(p->p == p->end) JSON_ERROR();
+			if(p->p == p->end)
+				return JSON_ERROR("json.h: unterminated string");
 			if(*p->p == 'u') {
-				if(p->end - p->p < 5) JSON_ERROR();
+				if(p->end - p->p < 5)
+					return JSON_ERROR("json.h: invalid unicode escape");
 				p->p += 4;
 			}
 		}
 		else if(*p->p == '"') break;
 		++p->p;
 	}
-	if(p->p == p->end) JSON_ERROR();
+	if(p->p == p->end) return JSON_ERROR("json.h: unterminated string");
 	t->end = p->p++;
 	t->type = JSON_STRING;
 	assert(p->p <= p->end);
@@ -168,7 +183,8 @@ static int
 json_null(Json *p, JsonTok *t, const char *text, int n) {
 	assert(n == 4 || n == 5);
 	assert(*p->p == 'n' || *p->p == 't' || *p->p == 'f');
-	if(p->end - p->p < n || memcmp(text, p->p, n)) JSON_ERROR();
+	if(p->end - p->p < n || memcmp(text, p->p, n))
+		return JSON_ERROR("json.h: expected null, true, or false");
 	t->start = p->p;
 	p->p += n;
 	t->end = p->p;
@@ -219,7 +235,7 @@ json_any(Json *p, JsonTok *t) {
 	case 't': return json_null(p, t, "true", 4);
 	case 'f': return json_null(p, t, "false", 5);
 	default:
-		JSON_ERROR();
+		return JSON_ERROR("json.h: invalid starting character");
 	}
 	return 0;
 }
@@ -245,6 +261,8 @@ key:
 			t->type = JSON_OBJECT_END;
 			return 1;
 		}
+		if(*p->p != '"')
+			return JSON_ERROR("json.h: only string keys allowed");
 		if(!json_str(p, t)) return 0;
 		assert(p->n > 0);
 		assert(p->n <= sizeof p->s / sizeof p->s[0]);
@@ -253,7 +271,8 @@ key:
 		return 1;
 	case ':':
 		p->s[p->n-1] = ',';
-		if(*p->p != ':') JSON_ERROR();
+		if(*p->p != ':')
+			return JSON_ERROR("json.h: missing ':' separator");
 		++p->p;
 		json_white(p);
 		return json_any(p, t);
@@ -265,7 +284,7 @@ key:
 			goto key;
 		}
 		if(*p->p == '}') goto key;
-		JSON_ERROR();
+		JSON_ERROR("json.h: invalid next object value");
 		break;
 	case '[':
 		p->s[p->n-1] = ';';
@@ -277,7 +296,8 @@ key:
 			t->type = JSON_ARRAY_END;
 			return 1;
 		}
-		if(*p->p != ',') JSON_ERROR();
+		if(*p->p != ',')
+			return JSON_ERROR("json.h: invalid next array value");
 		++p->p;
 		json_white(p);
 		return json_any(p, t);
@@ -285,7 +305,7 @@ key:
 		return 0; /* error state */
 	default:
 		assert(0);
-		JSON_ERROR();
+		return JSON_ERROR("json.h: invalid state");
 	}
 	return 0;
 }
@@ -451,6 +471,11 @@ int main() {
 				vals[nvals++] = val;
 			}
 		}
+	}
+
+	if(json_error(&p)) {
+		printf("Error parsing: %s\n", json_error(&p));
+		return -1;
 	}
 
 	printf("parsed %d values\n", nvals);

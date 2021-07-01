@@ -74,6 +74,11 @@ int main() {
 		}
 	}
 
+	if(json_error(&p)) {
+		printf("Error parsing: %s\n", json_error(&p));
+		return -1;
+	}
+
 	printf("parsed %d values\n", nvals);
 	for(i=0;i<nvals;i++) {
 		struct Val *v = &vals[i];
