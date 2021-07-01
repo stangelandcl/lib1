@@ -231,8 +231,11 @@ json_str(Json *p, JsonTok *t) {
 	assert(p->p < p->end);
 	t->start = d = ++p->p;
 	while(p->p != p->end) {
-		if(*p->p == '\\' && !json_escape(p, &d)) return 0;
-		else if(*p->p == '"') break;
+		if(*p->p == '\\') {
+			if(!json_escape(p, &d)) return 0;
+			else if(p->p == p->end) break;
+		}
+		if(*p->p == '"') break;
 		else if(d == p->p) { ++d; ++p->p; }
 		else *d++ = *p->p++;
 	}
