@@ -106,7 +106,6 @@ JSON_API int json_skip_composite(Json *p, JsonTok *t);
 #include <assert.h>
 #include <math.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 
 /* set to error state, log if in debug mode ond return 0 */
@@ -285,11 +284,9 @@ key:
 		return json_any(p, t);
 	case 'E': 
 		return 0; /* error state */
-	default: 
-		for(int i=0;i<p->n;i++) {
-			printf("unknown state '%c'\n", p->s[i]);
-		}
-		exit(1);
+	default:
+		assert(0);
+		JSON_ERROR();
 	}
 	return 0;
 }
@@ -327,6 +324,7 @@ json_int(JsonTok *t) {
 	const char *p = t->start;
 	const char *e = t->end;
 	int64_t i = 0, s = 1;
+
 	if(p != e) {
 		if(*p == '-') { ++p; s = -1; } /* sign */
 		for(;p != e && *p>='0' && *p<='9';++p) /* int */
@@ -344,7 +342,7 @@ json_float(JsonTok *t) {
 		if(*p == '-') {++p; s = -1; } /* sign */
 		for(;p != e && *p>='0' && *p<='9';++p) /* int */
 			i = i * 10 + (*p - '0');
-		f = (double)i;
+		f = (double)(i * s);
 		if(p != e && *p == '.') { /* fraction */
 			for(++p;p != e && *p>='0' && *p<='9';++p) {		
 				j = j * 10 + (*p - '0');	
