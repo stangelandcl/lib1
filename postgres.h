@@ -1,14 +1,9 @@
 #ifndef PG_H
 #define PG_H
 
-#include <stdarg.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 /*
   	public domain license at the bottom
- 	example at the bottom under #ifdef PG_MAIN
+ 	example at the bottom under #ifdef PG_EXAMPLE
 
 	postgres driver only handles text format queries and 
 	md5 authentication
@@ -30,11 +25,19 @@ extern "C" {
 	#define PG_NOSOCKET to exclude socket APIs
 */
 
+/* to exclude sockets */
 /* #define PG_NOSOCKET */
-#ifdef PG_STATIC
+#if defined(PG_STATIC) || defined(PG_EXAMPLE)
 #define PG_API static
+#define PG_IMPLEMENTATION
 #else
 #define PG_API extern
+#endif
+
+#include <stdarg.h>
+
+#ifdef __cplusplus
+extern "C" {
 #endif
 
 /* error return values */
@@ -1253,8 +1256,7 @@ pg_destroy(PgCtx* pg) {
 }
 
 
-#ifdef PG_MAIN
-
+#ifdef PG_EXAMPLE
 int main() {
 	char *name, *desc, *type;
 	PgCtx pg = {0}; /* important. zero init */

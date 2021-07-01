@@ -4,10 +4,12 @@
 /* license at end of file.
  * #define MD5_IMPLEMENTATION in one file unless
  * MD5_STATIC is defined then it can be used in multiple files
+ * Example at end of file. Search for MD5_EXAMPLE
  * */
 
-#ifdef MD5_STATIC
+#if defined(MD5_STATIC) || defined(MD5_EXAMPLE)
 #define MD5_API static
+#define MD5_IMPLEMENTATION
 #else
 #define MD5_API extern
 #endif
@@ -16,6 +18,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define MD5_BLOCK_SIZE 64
 #define MD5_HASH_SIZE 16
@@ -31,6 +36,10 @@ MD5_API void md5_init(MD5*);
 MD5_API void md5_add(MD5*, const void *bytes, size_t count);
 MD5_API void md5_finish(MD5*);
 MD5_API size_t md5_hash(void *hash, size_t hash_size, const void *data, size_t size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 
@@ -212,9 +221,7 @@ md5_hash(void *hash, size_t hash_size, const void *data, size_t size)
 	return hash_size;
 }
 
-#endif
-
-#ifdef MD5_MAIN
+#ifdef MD5_EXAMPLE
 #include <assert.h>
 #include <stdio.h>
 int main() {
@@ -271,4 +278,5 @@ ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ------------------------------------------------------------------------------
 */
+#endif
 
