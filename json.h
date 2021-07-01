@@ -40,8 +40,9 @@ enum {
 
 /* parser. call json_init before using with json_next */
 typedef struct Json {
-	/* stack of objects/arrays and current state */
-	char s[127], n, *p, *end;
+	char s[127]; /* stack of states for arrays/objects */
+	unsigned char n; /* size size */
+	char *p, *end;
 } Json;
 
 typedef struct JsonTok {
@@ -173,7 +174,6 @@ json_escape(Json *p, char **offset) {
 	if(++p->p == p->end)
 		return JSON_ERROR("json.h: unterminated string");
 	switch(*p->p++) {
-	default: return JSON_ERROR("json.h: invalid escape");
 	case '"': *d++ = '"'; break;
 	case '\\': *d++ = '\\'; break;
 	case 'n': *d++ = '\n'; break;
@@ -220,13 +220,12 @@ json_escape(Json *p, char **offset) {
 		*offset = d;
 		return 1;
 	}
+	return JSON_ERROR("json.h: invalid escape");
 }
 
 static int
 json_str(Json *p, JsonTok *t) {
 	char *d;
-	int ch, w1, w2;
-	int i;
 
 	assert(p->p < p->end);
 	t->start = d = ++p->p;
@@ -234,10 +233,10 @@ json_str(Json *p, JsonTok *t) {
 		if(*p->p == '\\') {
 			if(!json_escape(p, &d)) return 0;
 			else if(p->p == p->end) break;
-		}
-		if(*p->p == '"') break;
-		else if(d == p->p) { ++d; ++p->p; }
-		else *d++ = *p->p++;
+		} else if(*p->p != '"') {
+			if(d != p->p) *d = *p->p;
+			d++; p->p++;
+		} else break;
 	}
 	if(p->p == p->end) return JSON_ERROR("json.h: unterminated string");
 	++p->p;
@@ -324,7 +323,6 @@ json_any(Json *p, JsonTok *t) {
 
 JSON_API int
 json_next(Json *p, JsonTok *t) {
-	int rc;
 	assert(p->p <= p->end);
 	json_white(p);
 	assert(p->n > 0);
@@ -505,7 +503,7 @@ int main() {
 		"  [\n"
 		"      {\"stat\": -123.45e7,\n"
 		"       \"flag\":false,\n"
-		"       \"status\":\"on-going\",\n"
+		"       \"status\":\"on\t-going\",\n"
 		"       \"count\":49991 },\n"
 		"      {\"stat\": null,\n"
 		"       \"flag\":true,\n"
