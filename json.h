@@ -156,6 +156,62 @@ json_unicode(Json *p) {
 }
 
 static int
+json_escape(Json *p, char **offset) {
+	int ch, w1, w2;
+	char *d = *offset;
+	if(++p->p == p->end)
+		return JSON_ERROR("json.h: unterminated string");
+	switch(*p->p++) {
+	default: return JSON_ERROR("json.h: invalid escape");
+	case '"': *d++ = '"'; break;
+	case '\\': *d++ = '\\'; break;
+	case 'n': *d++ = '\n'; break;
+	case 't': *d++ = '\t'; break;
+	case 'r': *d++ = '\r'; break;
+	case '/': *d++ = '/'; break;
+	case 'b': *d++ = 'b'; break;
+	case 'f': *d++ = 'f'; break;
+	case 'u':
+		if(p->end - p->p < 4)
+			return JSON_ERROR("json.h: invalid unicode escape");
+		if(!(ch = json_unicode(p))) return 0;
+		if(ch >= 0xD800 && ch <= 0xDBFF) {
+			if(p->end - p->p < 6)
+				return JSON_ERROR("json.h: unterminated surrogate pair");
+			if(*p->p++ != '\\' || *p->p++ != 'u')
+				return JSON_ERROR("json.h: missing surrogate pair");
+			w1 = ch - 0xD800;
+			if(!(ch = json_unicode(p))) return 0;
+			if(ch < 0xDC00 || ch > 0xDFFF)
+				return JSON_ERROR("json.h: invalid second surrogate pair");
+			w2 = ch - 0xDC00;
+			ch = 0x10000 + (w1 << 10) + w2;
+		}
+
+		if(ch < 0x80) *(unsigned char*)d++ = ch;
+		else if(ch < 0x800) {
+			*(unsigned char*)d++ = 0xC0 | (ch >> 6);
+			*(unsigned char*)d++ = 0x80 | (ch & 0x3F);
+		} else if(ch < 0x10000) {
+			*(unsigned char*)d++ = 0xE0 | (ch >> 12);
+			*(unsigned char*)d++ = 0x80 | ((ch >> 6) & 0x3F);
+			*(unsigned char*)d++ = 0x80 | (ch & 0x3F);
+		} else if(ch < 0x110000) {
+			*(unsigned char*)d++ = 0xF0 | (ch >> 18);
+			*(unsigned char*)d++ = 0x80 | ((ch >> 12) & 0x3F);
+			*(unsigned char*)d++ = 0x80 | ((ch >> 6) & 0x3F);
+			*(unsigned char*)d++ = 0x80 | (ch & 0x3F);
+		} else {
+			*(unsigned char*)d++ = 0xEF;
+			*(unsigned char*)d++ = 0xBF;
+			*(unsigned char*)d++ = 0xBD;
+		}
+		*offset = d;
+		return 1;
+	}
+}
+
+static int
 json_str(Json *p, JsonTok *t) {
 	char *d;
 	int ch, w1, w2;
@@ -164,56 +220,9 @@ json_str(Json *p, JsonTok *t) {
 	assert(p->p < p->end);
 	t->start = d = ++p->p;
 	while(p->p != p->end) {
-		if(*p->p == '\\') {
-			if(++p->p == p->end)
-				return JSON_ERROR("json.h: unterminated string");
-			switch(*p->p++) {
-			default: return JSON_ERROR("json.h: invalid escape");
-			case '"': *d++ = '"'; break;
-			case '\\': *d++ = '\\'; break;
-			case 'n': *d++ = '\n'; break;
-			case 't': *d++ = '\t'; break;
-			case 'r': *d++ = '\r'; break;
-			case '/': *d++ = '/'; break;
-			case 'b': *d++ = 'b'; break;
-			case 'f': *d++ = 'f'; break;
-			case 'u':
-				if(p->end - p->p < 4)
-					return JSON_ERROR("json.h: invalid unicode escape");
-				if(!(ch = json_unicode(p))) return 0;
-				if(ch >= 0xD800 && ch <= 0xDBFF) {
-					if(p->end - p->p < 6)
-						return JSON_ERROR("json.h: unterminated surrogate pair");
-					if(*p->p++ != '\\' || *p->p++ != 'u')
-						return JSON_ERROR("json.h: missing surrogate pair");
-					w1 = ch - 0xD800;
-					if(!(ch = json_unicode(p))) return 0;
-					if(ch < 0xDC00 || ch > 0xDFFF)
-						return JSON_ERROR("json.h: invalid second surrogate pair");
-					w2 = ch - 0xDC00;
-					ch = 0x10000 + (w1 << 10) + w2;
-				}
-
-				if(ch < 0x80) *(unsigned char*)d++ = ch;
-				else if(ch < 0x800) {
-					*(unsigned char*)d++ = 0xC0 | (ch >> 6);
-					*(unsigned char*)d++ = 0x80 | (ch & 0x3F);
-				} else if(ch < 0x10000) {
-					*(unsigned char*)d++ = 0xE0 | (ch >> 12);
-					*(unsigned char*)d++ = 0x80 | ((ch >> 6) & 0x3F);
-					*(unsigned char*)d++ = 0x80 | (ch & 0x3F);
-				} else if(ch < 0x110000) {
-					*(unsigned char*)d++ = 0xF0 | (ch >> 18);
-					*(unsigned char*)d++ = 0x80 | ((ch >> 12) & 0x3F);
-					*(unsigned char*)d++ = 0x80 | ((ch >> 6) & 0x3F);
-					*(unsigned char*)d++ = 0x80 | (ch & 0x3F);
-				} else {
-					*(unsigned char*)d++ = 0xEF;
-					*(unsigned char*)d++ = 0xBF;
-					*(unsigned char*)d++ = 0xBD;
-				}
-			}
-		} else if(*p->p == '"') break;
+		if(*p->p == '\\' && !json_escape(p, &d)) return 0;
+		else if(*p->p == '"') break;
+		else if(d == p->p) { ++d; ++p->p; }
 		else *d++ = *p->p++;
 	}
 	if(p->p == p->end) return JSON_ERROR("json.h: unterminated string");
