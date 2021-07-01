@@ -12,7 +12,7 @@ As fast as jsmn. Faster than cJSON. Uses much less memory than either.
 Example from the bottom of [json.h](json.h). Search JSON\_EXAMPLE.
 ```c
 #define JSON_STATIC
-#include "json.h>
+#include "json.h"
 #include <stdio.h>
 #include <string.h>
 int main() {
