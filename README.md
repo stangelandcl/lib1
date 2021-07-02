@@ -29,7 +29,7 @@ int main() {
 		"       \"flag\":true,\n"
 		"       \"status\":\"\\uD83D\\ude03 done\",\n"
 		"       \"count\": -10 }\n"
-		"  ],\n"
+		"  ]\n"
 		"}";
 	Json p;
 	JsonTok k, v;

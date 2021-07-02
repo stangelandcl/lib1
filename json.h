@@ -72,16 +72,16 @@ JSON_API int json_next(Json*, JsonTok*);
 JSON_API double json_float(JsonTok*);
 /* parses an int64 from a number or string token. returns 0 on can't parse */
 JSON_API int64_t json_int(JsonTok*);
-/* return 1 if token is object or array else 0.
-   to skip arrays and objects and properly handle nesting
-   always call this function as part of every if chaining dealing
-   with tokens. It is safe to call whether JsonTok is actually
-   a composite or not */
+/* return 1 if token is object or array else 0. */
 JSON_API int json_composite(JsonTok*);
 /* skip to end of current object or array. This only works
    if the parser is at start of object or array,
    last token from json_next was JSON_OBJECT or JSON_ARRAY.
-   Otherwise will mess up parsing and lead to invalid state */
+   Otherwise will mess up parsing and lead to invalid state.
+   To skip arrays and objects and properly handle nesting
+   always call this function as part of every "if" chain dealing
+   with tokens. It is safe to call whether last JsonTok was
+   actually a composite or not */
 JSON_API int json_skip(Json*p);
 /* iterate a key-value pair in a json object.
    return 1 on have key, value or 0 on end of object or error */
@@ -89,10 +89,6 @@ JSON_API int json_object(Json *p, JsonTok *k, JsonTok *v);
 /* iterate array value until error, or end of json array.
    return 1 on have item. 0 on end of array or error */
 JSON_API int json_array(Json *p, JsonTok *t);
-/* skip to end of composite object if at the start
-   of an object or array else do nothing.
-   return 1 if skipped to end. 0 if didn't move */
-JSON_API int json_skip(Json *p);
 /* returns text if parser is in error state or null if not */
 JSON_API const char *json_error(Json *p);
 
@@ -117,6 +113,7 @@ enum {
 	JSON_S_OBJECT,
 	JSON_S_KEY,
 	JSON_S_VALUE,
+	JSON_S_NEXT,
 	JSON_S_ARRAY,
 	JSON_S_ELEMENT,
 	JSON_S_ERROR,
@@ -336,42 +333,48 @@ json_next(Json *p, JsonTok *t) {
 	switch(p->s[p->n-1]) {
 	case JSON_S_START:  return json_any(p, t);
 	case JSON_S_OBJECT:
-key:
 		assert(p->p <= p->end);
-		if(p->p == p->end)
-			return JSON_ERROR("json.h: unterminated object");
 		if(*p->p == '}') {
 			++p->p;
 			--p->n;
 			t->type = JSON_OBJECT_END;
 			return 1;
 		}
+		/* fall through */
+	case JSON_S_KEY:
+key:
 		if(*p->p != '"')
 			return JSON_ERROR("json.h: only string keys allowed");
 		if(!json_str(p, t)) return 0;
 		assert(p->n > 0);
 		assert(p->n <= sizeof p->s / sizeof p->s[0]);
-		if(!json_push(p, JSON_S_KEY)) return 0;
+		if(!json_push(p, JSON_S_VALUE)) return 0;
 		assert(p->p <= p->end);
 		return 1;
-	case JSON_S_KEY:
-		p->s[p->n-1] = JSON_S_VALUE;
+	case JSON_S_VALUE:
 		if(*p->p != ':')
 			return JSON_ERROR("json.h: missing ':' separator");
 		++p->p;
+		p->s[p->n-1] = JSON_S_NEXT;
 		json_white(p);
 		if(p->p == p->end) return JSON_ERROR("json.h: missing key-value pair value");
 		return json_any(p, t);
-	case JSON_S_VALUE:
+	case JSON_S_NEXT:
 		--p->n;
 		if(*p->p == ',') {
 			++p->p;
 			json_white(p);
+			if(p->p == p->end)
+				return JSON_ERROR("json.h: unterminated object");
 			goto key;
 		}
-		if(*p->p == '}') goto key;
-		JSON_ERROR("json.h: invalid next object value");
-		break;
+		if(*p->p == '}') {
+			++p->p;
+			--p->n;
+			t->type = JSON_OBJECT_END;
+			return 1;
+		}
+		return JSON_ERROR("json.h: invalid next object value");
 	case JSON_S_ARRAY:
 		p->s[p->n-1] = JSON_S_ELEMENT;
 		return json_any(p, t);
@@ -513,7 +516,7 @@ int main() {
 		"       \"flag\":true,\n"
 		"       \"status\":\"\\uD83D\\ude03 done\",\n"
 		"       \"count\": -10 }\n"
-		"  ],\n"
+		"  ]\n"
 		"}";
 	Json p;
 	JsonTok k, v;
