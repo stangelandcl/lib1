@@ -92,7 +92,7 @@ int main() {
 
 /* Output:
 parsed 2 values
-i=0 stat=-1225500000.000000 flag=false status=on        going count=49991
+i=0 stat=-1234500000.000000 flag=false status=on        going count=49991
 i=1 stat=0.000000 flag=true status=😃 done count=-10
 */
 ```

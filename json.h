@@ -440,6 +440,7 @@ json_int(JsonTok *t) {
 	}
 	return i * s;
 }
+
 JSON_API double
 json_float(JsonTok *t) {
 	char *p = t->start, *e = t->end;
@@ -449,14 +450,15 @@ json_float(JsonTok *t) {
 		if(*p == '-') {++p; s = -1; } /* sign */
 		for(;p != e && *p>='0' && *p<='9';++p) /* int */
 			i = i * 10 + (*p - '0');
-		f = (double)(i * s);
+		f = (double)i;
 		if(p != e && *p == '.') { /* fraction */
 			for(++p;p != e && *p>='0' && *p<='9';++p) {
 				j = j * 10 + (*p - '0');
 				jj *= 10;
 			}
-			f += (double)j  / (double)jj;
+			f += (double)j / (double)jj;
 		}
+		f *= s; /* must be done after adding in the fraction */
 		if(p != e && (*p == 'e' || *p=='E')) { /* exponent */
 			if(++p < e) {
 				if(*p == '+') ++p; /* exponent sign */
