@@ -328,13 +328,13 @@ json_any(Json *p, JsonTok *t) {
 JSON_API int
 json_next(Json *p, JsonTok *t) {
 	assert(p->p <= p->end);
-	json_white(p);
 	assert(p->n > 0);
 	assert(p->n <= sizeof p->s / sizeof p->s[0]);
+
+	json_white(p);
 	if(p->p == p->end) return JSON_SUCCESS;
 	switch(p->s[p->n-1]) {
-	case JSON_S_START:  /* starting state */
-		return json_any(p, t);
+	case JSON_S_START:  return json_any(p, t);
 	case JSON_S_OBJECT:
 key:
 		assert(p->p <= p->end);

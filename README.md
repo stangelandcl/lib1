@@ -23,7 +23,7 @@ int main() {
 		"  [\n"
 		"      {\"stat\": -123.45e7,\n"
 		"       \"flag\":false,\n"
-		"       \"status\":\"on-going\",\n"
+		"       \"status\":\"on\\t-going\",\n"
 		"       \"count\":49991 },\n"
 		"      {\"stat\": null,\n"
 		"       \"flag\":true,\n"
@@ -32,7 +32,7 @@ int main() {
 		"  ],\n"
 		"}";
 	Json p;
-	JsonTok t, k, v;
+	JsonTok k, v;
 	struct Val { double stat; int flag; char *status; int count; };
 	struct Val vals[100], val;
 	int nvals = 0, i;
@@ -40,19 +40,19 @@ int main() {
 	printf("parsing:\n%s\n", json);
 
 	json_init(&p, json, sizeof json - 1);
-	while(json_next(&p, &t)) {
+	while(json_next(&p, &v)) {
 		/* always handle all possible object/array values.
 		   primitives are automatically skipped but arrays and objects
 		   must be manually skipped. The simplest rule is
 		   always call json_skip() as part of every
 		   if statement chain. It is safe to call whether
 		   token is actually a composite type or not */
-		if(t.type != JSON_OBJECT) json_skip(&p);
+		if(v.type != JSON_OBJECT) json_skip(&p);
 		else while(json_object(&p, &k, &v)) {
 			if(!JSON_EQ(&k, "values") || v.type != JSON_ARRAY)
 				json_skip(&p);
-			else while(json_array(&p, &t)) {
-				if(t.type != JSON_OBJECT) {
+			else while(json_array(&p, &v)) {
+				if(v.type != JSON_OBJECT) {
 					json_skip(&p);
 					continue;
 				}
@@ -89,5 +89,4 @@ int main() {
 
 	return 0;
 }
-
 ```
