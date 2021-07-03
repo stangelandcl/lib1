@@ -3,6 +3,8 @@ Public domain single file C libraries in the vein of https://github.com/nothings
 
 - [json.h](json.h) - tiny, iterative zero memory overhead JSON parser.
 As fast as jsmn. Faster than cJSON. Uses much less memory than either.
+- [json2.h](json2.h) - faster, less precise parser running at 60-70% of simdjson.
+See bottom of file for example
 - [md5.h](md5.h) - small md5 hash function
 - [postgres.h](postgres.h) - minimal postgres driver handling text protocol queries and md5
   password authentication only
