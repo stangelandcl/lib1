@@ -8,7 +8,7 @@
 
    Not actually so much a parser as a fast way to extract data
    from a JSON document. Runs at about 65-70% of the speed of simdjson.
-   lazily parses integers and strings.
+   lazily parses numbers and strings.
    call json_str() or json_strdup() on a token to decode escape sequences.
    call json_int() or json_float() to decode numbers. Will parse numbers
    from either json numbers or json strings.
