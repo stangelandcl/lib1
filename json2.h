@@ -3,14 +3,22 @@
 
 /*
    From https://github.com/stangelandcl/lib1/json.h
-   Zero memory overhead iterative json parser
+   Zero memory overhead iterative json parser.
    license and example at end of file. Search for JSON_EXAMPLE
+
+   Not actually so much a parser as a fast way to extract data
+   from a JSON document. Runs at about 65-70% of the speed of simdjson.
+   lazily parses integers and strings.
+   call json_str() or json_strdup() on a token to decode escape sequences.
+   call json_int() or json_float() to decode numbers. Will parse numbers
+   from either json numbers or json strings.
+   call json_bool() to decode bools
+   check JsonTok->type == JSON_NULL for nulls.
 
    #define JSON_IMPLEMENTATION in one .C file before including json.h.
    Use json.h in other files normally.
    Alternatively define JSON_STATIC before each use of json.h for
    static definitions
-
 */
 
 #if defined(JSON_STATIC) || defined(JSON_EXAMPLE) || defined(JSON_FUZZ)
@@ -40,9 +48,7 @@ enum {
 
 /* parser. call json_init before using with json_next */
 typedef struct Json {
-	char s[127]; /* stack of states for arrays/objects */
-	unsigned char n; /* size size */
-	char *p, *end;
+	char *s, *e;
 } Json;
 
 typedef struct JsonTok {
@@ -53,13 +59,14 @@ typedef struct JsonTok {
 /* compare JsonTok tok to string literal and return 1 if
    tok is a string and matches the literal */
 #define JSON_EQ(tok, literal) \
-	((tok)->type == JSON_STRING && \
-	 (((tok)->end - (tok)->start) == sizeof(literal) - 1) && \
+	 ((((tok)->end - (tok)->start) == sizeof(literal) - 1) && \
 	 !memcmp((tok)->start, literal, sizeof(literal)-1))
 
 /* initialize parser with json text. json must be non-const.
    string escapes are rewritten in place */
 JSON_API void json_init(Json *p, char *json, size_t n);
+/* decode string and return length in n. May return null */
+JSON_API char* json_str(JsonTok *t, size_t *n);
 /* malloc and return a C string of token.
    returns 0 on not a string or out of memory */
 JSON_API char* json_strdup(JsonTok*);
@@ -72,8 +79,6 @@ JSON_API int json_next(Json*, JsonTok*);
 JSON_API double json_float(JsonTok*);
 /* parses an int64 from a number or string token. returns 0 on can't parse */
 JSON_API int64_t json_int(JsonTok*);
-/* return 1 if token is object or array else 0. */
-JSON_API int json_composite(JsonTok*);
 /* skip to end of current object or array. This only works
    if the parser is at start of object or array,
    last token from json_next was JSON_OBJECT or JSON_ARRAY.
@@ -82,15 +87,26 @@ JSON_API int json_composite(JsonTok*);
    always call this function as part of every "if" chain dealing
    with tokens. It is safe to call whether last JsonTok was
    actually a composite or not */
-JSON_API int json_skip(Json*p);
+JSON_API void json_skip(Json*p, JsonTok *t);
+JSON_API int json_object(Json *p, JsonTok *k, JsonTok *v);
+/* return 1 if token is object or array else 0. */
+static int
+json_composite(JsonTok *t) {
+	return t->type == JSON_OBJECT || t->type == JSON_ARRAY;
+}
 /* iterate a key-value pair in a json object.
    return 1 on have key, value or 0 on end of object or error */
-JSON_API int json_object(Json *p, JsonTok *k, JsonTok *v);
+static int
+json_object(Json *p, JsonTok *k, JsonTok *v) {
+	if(!json_next(p, k) || k->type == JSON_OBJECT_END) return 0;
+	return json_next(p, v);
+}
 /* iterate array value until error, or end of json array.
    return 1 on have item. 0 on end of array or error */
-JSON_API int json_array(Json *p, JsonTok *t);
-/* returns text if parser is in error state or null if not */
-JSON_API const char *json_error(Json *p);
+static int
+json_array(Json *p, JsonTok *t) {
+	return json_next(p, t) && t->type != JSON_ARRAY_END;
+}
 
 #ifdef __cplusplus
 }
@@ -105,72 +121,108 @@ JSON_API const char *json_error(Json *p);
 #include <stdlib.h>
 #include <string.h>
 
-#define JSON_ERROR(msg) json_make_error(p, msg, sizeof msg)
-#define JSON_SUCCESS (p->s[p->n-1]=JSON_S_DONE,0)
-
-enum {
-	JSON_S_START,
-	JSON_S_OBJECT,
-	JSON_S_KEY,
-	JSON_S_VALUE,
-	JSON_S_NEXT,
-	JSON_S_ARRAY,
-	JSON_S_ELEMENT,
-	JSON_S_ERROR,
-	JSON_S_DONE
-};
-
-static int
-json_make_error(Json *p, const char *msg, size_t n) {
-	assert(p->n > 0);
-	p->p = (char*)msg;
-	p->end = p->p + n;
-	p->s[p->n > 0 ? p->n - 1 : p->n++ ] = JSON_S_ERROR;
-	return 0;
-}
-
-
-JSON_API const char*
+JSON_API int
 json_error(Json *p) {
-	assert(p->n > 0);
-	assert(p->n <= sizeof p->s / sizeof p->s[0]);
-	if(p->n <= 0) return "json.h: stack underflow";
-	if(p->s[p->n-1] == JSON_S_ERROR) return p->p;
-	return 0;
+	return !p->e;
 }
 
-static void
+static inline int
 json_white(Json *p) {
-	assert(p->p <= p->end);
-	while(p->p != p->end &&
-	     (*p->p == ' ' || *p->p == '\t' || *p->p == '\n' || *p->p == '\r'))
-	     ++p->p;
+	if(p->s >= p->e) return 0;
+	for(;;) {
+		if(p->s == p->e) return 0;
+	        if(*p->s == ' ' || *p->s == '\t' || *p->s == '\n' || *p->s == '\r')  ++p->s;
+		else return 1;
+	}
 }
 
 static int
-json_unicode(Json *p) {
+json_unicode(char **pp, char *e) {
+	char *p = *pp;
 	int i, ch = 0;
-	for(i=4;i!=0;i--,p->p++) {
+	for(i=4;i!=0;i--,p++) {
 		ch *= 16;
-		if(*p->p >= 'a' && *p->p <= 'f') ch += 10 + *p->p - 'a';
-		else if(*p->p >= 'A' && *p->p <= 'F') ch += 10 + *p->p - 'A';
-		else if(*p->p >= '0' && *p->p <= '9') ch += *p->p - '0';
+		if(*p >= 'a' && *p <= 'f') ch += 10 + *p - 'a';
+		else if(*p >= 'A' && *p <= 'F') ch += 10 + *p - 'A';
+		else if(*p >= '0' && *p <= '9') ch += *p - '0';
 		else {
-			JSON_ERROR("json.h: invalid unicode hex");
-			return 0;
+			ch = 0;
+			break;
 		};
 	}
-	if(!ch) JSON_ERROR("json.h: null char in string");
+	*pp = p;
 	return ch;
 }
 
-static int
-json_escape(Json *p, char **offset) {
+JSON_API int
+json_next(Json *p, JsonTok *t) {
+	if(!json_white(p)) return 0;
+	t->start = t->end = 0;
+	for(;;) {
+		switch(*p->s++) {
+		case '{': t->type = JSON_OBJECT; return 1;
+		case '}': t->type = JSON_OBJECT_END; return 1;
+		case '[': t->type = JSON_ARRAY; return 1;
+		case ']': t->type = JSON_ARRAY_END; return 1;
+		case ',': case ':':
+			if(!json_white(p)) goto error;
+			continue;
+		case '"':
+			t->start = p->s;
+			while(p->s < p->e-1 && *p->s != '"') {
+				if(*p->s == '\\') ++p->s;
+				++p->s;
+			}
+			t->end = p->s++;
+			t->type = JSON_STRING;
+			return 1;
+		case 'n':
+			t->start = p->s-1; p->s += 3;
+			t->end = p->s;
+			t->type = JSON_NULL;
+			return 1;
+		case 't':
+			t->start = p->s-1; p->s += 3;
+			t->end = p->s;
+			t->type = JSON_BOOL;
+			return 1;
+		case 'f':
+			t->start = p->s-1; p->s += 4;
+			t->end = p->s;
+			t->type = JSON_BOOL;
+			return 1;
+		default:
+			t->start = --p->s;
+			if((*p->s >= '0' && *p->s <= '9') || *p->s == '-') {
+				while(p->s != p->e) {
+					if(*p->s == ',' || *p->s == ']' || *p->s == '}') break;
+					++p->s;
+				}
+				t->end = p->s;
+				t->type = JSON_NUMBER;
+				return 1;
+			}
+			goto error;
+		}
+
+	}
+error:
+	p->e = 0;
+	return 0;
+}
+
+JSON_API void
+json_init(Json *p, char *json, size_t n) {
+	p->s = json;
+	p->e = json + n;
+}
+
+JSON_API int
+json_decode(char **pp, char **dp, char *e) {
+	char *p = *pp, *d = *dp;
 	int ch, w1, w2;
-	char *d = *offset;
-	if(++p->p == p->end)
-		return JSON_ERROR("json.h: unterminated string");
-	switch(*p->p++) {
+	++p;
+	switch(*p++) {
 	case '"': *d = '"'; break;
 	case '\\': *d = '\\'; break;
 	case 'n': *d = '\n'; break;
@@ -180,18 +232,14 @@ json_escape(Json *p, char **offset) {
 	case 'b': *d = 'b'; break;
 	case 'f': *d = 'f'; break;
 	case 'u':
-		if(p->end - p->p < 4)
-			return JSON_ERROR("json.h: invalid unicode escape");
-		if(!(ch = json_unicode(p))) return 0;
+		if(e - p < 4) return 0;;
+		if(!(ch = json_unicode(&p, e))) return 0;
 		if(ch >= 0xD800 && ch <= 0xDBFF) {
-			if(p->end - p->p < 6)
-				return JSON_ERROR("json.h: unterminated surrogate pair");
-			if(*p->p++ != '\\' || *p->p++ != 'u')
-				return JSON_ERROR("json.h: missing surrogate pair");
+			if(e - p < 6) return 0;
+			if(*p++ != '\\' || *p++ != 'u') return 0;
 			w1 = ch - 0xD800;
-			if(!(ch = json_unicode(p))) return 0;
-			if(ch < 0xDC00 || ch > 0xDFFF)
-				return JSON_ERROR("json.h: invalid second surrogate pair");
+			if(!(ch = json_unicode(&p, e))) return 0;
+			if(ch < 0xDC00 || ch > 0xDFFF) return 0;
 			w2 = ch - 0xDC00;
 			ch = 0x10000 + (w1 << 10) + w2;
 		}
@@ -214,211 +262,48 @@ json_escape(Json *p, char **offset) {
 			*(unsigned char*)d++ = 0xBF;
 			*(unsigned char*)d++ = 0xBD;
 		}
-		--p->p;
 		--d;
 		break;
-	default: return JSON_ERROR("json.h: invalid escape");
+	default: return 0;
 	}
-	++p->p;
-	*offset = ++d;
+	*pp = p; *dp = ++d;
 	return 1;
 }
 
-static int
-json_str(Json *p, JsonTok *t) {
-	char *d;
+JSON_API char*
+json_str(JsonTok *t, size_t *n) {
+	char *d, *p, *e;
 
-	assert(p->p < p->end);
-	t->start = d = ++p->p;
-	while(p->p != p->end) {
-		if(*p->p == '\\') {
-			if(!json_escape(p, &d)) return 0;
-			else if(p->p == p->end) break;
-		} else if(*p->p != '"') {
-			if(d != p->p) *d = *p->p;
-			d++; p->p++;
-		} else break;
+	*n = 0;
+	d = p = t->start;
+	e = t->end;
+
+	if(p == e || t->type == JSON_NULL) return 0;
+
+	while(p != e) {
+		if(*p == '\\') {
+			if(!json_decode(&p, &d, e)) return 0;
+		} else {
+			if(d != p) *d = *p;
+			++d; ++p;
+		}
 	}
-	if(p->p == p->end) return JSON_ERROR("json.h: unterminated string");
-	++p->p;
+
+	*n = d - t->start;
 	t->end = d;
-	t->type = JSON_STRING;
-	assert(p->p <= p->end);
-	return 1;
-}
-
-/* add item char to stack. retrun 1 on success.
-   set to error and return 0 on out of stack space
-   or invalid state char */
-static int
-json_push(Json *p, char c) {
-	assert(p->n > 0);
-	if(c > JSON_S_START && c <= JSON_S_DONE &&
-	   p->n < sizeof p->s / sizeof p->s[0]) {
-			p->s[p->n++] = c;
-			return 1;
-	}
-	p->s[p->n-1] = JSON_S_ERROR;
-	return 0;
-}
-
-static int
-json_null(Json *p, JsonTok *t, const char *text, int n) {
-	assert(n == 4 || n == 5);
-	assert(*p->p == 'n' || *p->p == 't' || *p->p == 'f');
-	if(p->end - p->p < n || memcmp(text, p->p, n))
-		return JSON_ERROR("json.h: expected null, true, or false");
-	t->start = p->p;
-	p->p += n;
-	t->end = p->p;
-	t->type = *text == 'n' ? JSON_NULL : JSON_BOOL;
-	assert(p->p <= p->end);
-	return 1;
-}
-
-static int
-json_any(Json *p, JsonTok *t) {
-	switch(*p->p) {
-	case '{':
-		if(!json_push(p, JSON_S_OBJECT)) return 0;
-		t->start = t->end = 0;
-		t->type = JSON_OBJECT;
-		++p->p;
-		assert(p->p <= p->end);
-		return 1;
-	case '[':
-		if(!json_push(p, JSON_S_ARRAY)) return 0;
-		t->start = t->end = 0;
-		t->type = JSON_ARRAY;
-		++p->p;
-		assert(p->p <= p->end);
-		return 1;
-	case '-':case '0':case '1':case '2':case '3':case '4':
-	case '5':case '6':case '7':case '8':case '9':
-		t->start = p->p;
-		if(*p->p == '-') ++p->p;
-		while(p->p != p->end && *p->p >= '0' && *p->p <= '9') ++p->p;
-		if(p->p != p->end && *p->p == '.') {
-			++p->p;
-			while(p->p != p->end && *p->p >= '0' && *p->p <= '9') ++p->p;
-		}
-		if(p->p != p->end && (*p->p == 'e' || *p->p == 'E')) {
-			++p->p;
-			if(p->p != p->end && (*p->p == '-' || *p->p == '+')) ++p->p;
-			while(p->p != p->end && *p->p >= '0' && *p->p <= '9') ++p->p;
-		}
-
-		t->end = p->p;
-		t->type = JSON_NUMBER;
-		assert(p->p <= p->end);
-		return 1;
-	case '"': return json_str(p, t);
-	case 'n': return json_null(p, t, "null", 4);
-	case 't': return json_null(p, t, "true", 4);
-	case 'f': return json_null(p, t, "false", 5);
-	default:
-		return JSON_ERROR("json.h: invalid starting character");
-	}
-	return 0;
-}
-
-JSON_API int
-json_next(Json *p, JsonTok *t) {
-	assert(p->p <= p->end);
-	assert(p->n > 0);
-	assert(p->n <= sizeof p->s / sizeof p->s[0]);
-
-	json_white(p);
-	if(p->p == p->end) return JSON_SUCCESS;
-	switch(p->s[p->n-1]) {
-	case JSON_S_START:  return json_any(p, t);
-	case JSON_S_OBJECT:
-		assert(p->p <= p->end);
-		if(*p->p == '}') {
-			++p->p;
-			--p->n;
-			t->type = JSON_OBJECT_END;
-			return 1;
-		}
-		/* fall through */
-	case JSON_S_KEY:
-key:
-		if(*p->p != '"')
-			return JSON_ERROR("json.h: only string keys allowed");
-		if(!json_str(p, t)) return 0;
-		assert(p->n > 0);
-		assert(p->n <= sizeof p->s / sizeof p->s[0]);
-		if(!json_push(p, JSON_S_VALUE)) return 0;
-		assert(p->p <= p->end);
-		return 1;
-	case JSON_S_VALUE:
-		if(*p->p != ':')
-			return JSON_ERROR("json.h: missing ':' separator");
-		++p->p;
-		p->s[p->n-1] = JSON_S_NEXT;
-		json_white(p);
-		if(p->p == p->end) return JSON_ERROR("json.h: missing key-value pair value");
-		return json_any(p, t);
-	case JSON_S_NEXT:
-		--p->n;
-		if(*p->p == ',') {
-			++p->p;
-			json_white(p);
-			if(p->p == p->end)
-				return JSON_ERROR("json.h: unterminated object");
-			goto key;
-		}
-		if(*p->p == '}') {
-			++p->p;
-			--p->n;
-			t->type = JSON_OBJECT_END;
-			return 1;
-		}
-		return JSON_ERROR("json.h: invalid next object value");
-	case JSON_S_ARRAY:
-		p->s[p->n-1] = JSON_S_ELEMENT;
-		return json_any(p, t);
-	case JSON_S_ELEMENT:
-		if(*p->p == ']') {
-			++p->p;
-			--p->n;
-			t->type = JSON_ARRAY_END;
-			return 1;
-		}
-		if(*p->p != ',')
-			return JSON_ERROR("json.h: invalid next array value");
-		++p->p;
-		json_white(p);
-		if(p->p == p->end) return JSON_ERROR("json.h: missing next array value");
-		return json_any(p, t);
-	case JSON_S_ERROR: return 0; /* error state */
-	case JSON_S_DONE: return 0; /* completed successfully state */
-	default:
-		assert(0);
-		return JSON_ERROR("json.h: invalid state");
-	}
-	return 0;
-}
-
-JSON_API void
-json_init(Json *p, char *json, size_t n) {
-	p->s[0] = JSON_S_START;
-	p->n = 1;
-	p->p = json;
-	p->end = json + n;
+	return t->start;
 }
 
 JSON_API char*
 json_strdup(JsonTok *t) {
-	char *c;
 	size_t n;
-	if(t->type != JSON_STRING) return 0;
-	n = t->end - t->start;
-	c = (char*)malloc(n + 1);
+	char *c = json_str(t, &n), *c2;
 	if(!c) return 0;
-	memcpy(c, t->start, n);
-	c[n] = 0;
-	return c;
+	c2 = (char*)malloc(n + 1);
+	if(!c) return 0;
+	memcpy(c2, c, n);
+	c2[n] = 0;
+	return c2;
 }
 
 JSON_API int
@@ -447,7 +332,12 @@ json_float(JsonTok *t) {
 	int64_t i = 0, j=0, jj=1, k=0, s = 1, ks=1;
 	double f = 0.0;
 	if(p != e) {
+#if 0
+		int m = *p == '-';
+		p += m; s *= m * -2;
+#else
 		if(*p == '-') {++p; s = -1; } /* sign */
+#endif
 		for(;p != e && *p>='0' && *p<='9';++p) /* int */
 			i = i * 10 + (*p - '0');
 		f = (double)i;
@@ -461,11 +351,18 @@ json_float(JsonTok *t) {
 		f *= s; /* must be done after adding in the fraction */
 		if(p != e && (*p == 'e' || *p=='E')) { /* exponent */
 			if(++p < e) {
+#if 0
+				if(*p == '+' || *p == '-') {
+					ks = ks + (*p == '-') * -2;
+					++p;
+				}
+#else
 				if(*p == '+') ++p; /* exponent sign */
 				else if(*p == '-') {
 					ks = -1;
 					++p;
 				}
+#endif
 				for(;p != e && *p>='0' && *p<='9';++p)
 					k = k * 10 + (*p - '0');
 				f *= pow(10, (double)(k * ks));
@@ -475,30 +372,20 @@ json_float(JsonTok *t) {
 	return f;
 }
 
-JSON_API int
-json_composite(JsonTok *t) {
-	return t->type == JSON_OBJECT || t->type == JSON_ARRAY;
-}
-
-JSON_API int
-json_skip(Json *p) {
-	int n = p->n, rc;
+JSON_API void
+json_skip(Json *p, JsonTok *last) {
+	int n;
 	JsonTok t;
-	if(p->s[p->n-1] != JSON_S_OBJECT && p->s[p->n-1] != JSON_S_ARRAY) return 0;
-	while(p->n >= n && ((rc = json_next(p, &t))));
-	assert(!rc || t.type == JSON_OBJECT_END || t.type == JSON_ARRAY_END);
-	return rc;
-}
 
-JSON_API int
-json_object(Json *p, JsonTok *k, JsonTok *v) {
-	if(!json_next(p, k) || k->type == JSON_OBJECT_END) return 0;
-	return json_next(p, v);
-}
-
-JSON_API int
-json_array(Json *p, JsonTok *t) {
-	return json_next(p, t) && t->type != JSON_ARRAY_END;
+	if(last->type == JSON_OBJECT || last->type == JSON_ARRAY) {
+		n = 1;
+		while(json_next(p, &t)) {
+			switch(t.type) {
+			case JSON_OBJECT: case JSON_ARRAY: ++n; break;
+			case JSON_OBJECT_END: case JSON_ARRAY_END: if(!--n) return; break;
+			}
+		}
+	}
 }
 
 #if JSON_EXAMPLE
@@ -536,13 +423,13 @@ int main() {
 		   always call json_skip() as part of every
 		   if statement chain. It is safe to call whether
 		   token is actually a composite type or not */
-		if(v.type != JSON_OBJECT) json_skip(&p);
+		if(v.type != JSON_OBJECT) json_skip(&p, &v);
 		else while(json_object(&p, &k, &v)) {
 			if(!JSON_EQ(&k, "values") || v.type != JSON_ARRAY)
-				json_skip(&p);
+				json_skip(&p, &v);
 			else while(json_array(&p, &v)) {
 				if(v.type != JSON_OBJECT) {
-					json_skip(&p);
+					json_skip(&p, &v);
 					continue;
 				}
 
@@ -556,17 +443,12 @@ int main() {
 						val.status = json_strdup(&v);
 					else if(JSON_EQ(&k, "count"))
 						val.count = (int)json_int(&v);
-					else json_skip(&p); /* always call this
+					else json_skip(&p, &v); /* always call this
 					function in if chains */
 				}
 				vals[nvals++] = val;
 			}
 		}
-	}
-
-	if(json_error(&p)) {
-		printf("Error parsing: %s\n", json_error(&p));
-		return -1;
 	}
 
 	printf("parsed %d values\n", nvals);

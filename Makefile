@@ -4,10 +4,11 @@ cloc:
 	cloc .
 
 json:
+	$(CXX) -Wall -Werror -Wno-unused-function -x c++ -O0 -ggdb3 -DJSON_EXAMPLE json.h -lm
 	$(CC) -Wall -Werror -Wno-unused-function -x c -O0 -ggdb3 -DJSON_EXAMPLE json.h -lm && ./a.out
 
 json_fuzz:
-	clang -x c -O3 -ggdb3 -fno-inline-functions -DJSON_FUZZ json.h -fsanitize=address,undefined,fuzzer -lm
+	clang -x c -O3 -ggdb3 -fno-inline-functions -DJSON_FUZZ json2.h -fsanitize=address,undefined,fuzzer -lm
 	./a.out -max_len=100000000
 
 md5:
