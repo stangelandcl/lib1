@@ -1,13 +1,16 @@
 ## lib1
 Public domain single file C libraries in the vein of https://github.com/nothings/stb.
 
+- [base64.h](base64.h) - base64 encode/decode. decodes base64url if padded
 - [json.h](json.h) - tiny, iterative zero memory overhead JSON parser.
 As fast as jsmn. Faster than cJSON. Uses much less memory than either.
 - [json2.h](json2.h) - faster, less precise parser running at 60-70% of simdjson.
 See bottom of file for example
 - [md5.h](md5.h) - small md5 hash function
+- [rsa.h](rsa.h) - RSA sign and verify
 - [postgres.h](postgres.h) - minimal postgres driver handling text protocol queries and md5
   password authentication only
+- [sha.h](sha.h) - SHA hashes
 
 
 ### json
