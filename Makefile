@@ -20,3 +20,9 @@ postgres:
 postgres_win:
 	x86_64-w64-mingw32-gcc -x c -O0 -ggdb3 -DPG_MAIN -DPG_IMPLEMENTATION postgres.h -lws2_32 && ./a.out
 
+rsa:
+	$(CC) -x c -O0 -ggdb3 -DRSA_EXAMPLE rsa.h && ./a.out
+
+sha:
+	$(CC) -x c -O0 -ggdb3 -DSHA_EXAMPLE sha.h && ./a.out
+

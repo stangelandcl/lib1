@@ -88,7 +88,6 @@ JSON_API int64_t json_int(JsonTok*);
    with tokens. It is safe to call whether last JsonTok was
    actually a composite or not */
 JSON_API void json_skip(Json*p, JsonTok *t);
-JSON_API int json_object(Json *p, JsonTok *k, JsonTok *v);
 /* return 1 if token is object or array else 0. */
 static int
 json_composite(JsonTok *t) {
