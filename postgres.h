@@ -5,9 +5,9 @@
    	From https://github.com/stangelandcl/lib1/postgres.h
   	License and example at bottom of file. Search PG_EXAMPLE.
 
-	postgres driver only handles text format queries and 
+	postgres driver only handles text format queries and
 	md5 authentication
- 
+
 	Normal usage:
 	in header..
 	#include "postgres.h"
@@ -20,7 +20,6 @@
 	#define PG_STATIC
 	#define PG_IMPLEMENTATION
 	#include "postgres.h"
-
 
 	#define PG_NOSOCKET to exclude socket APIs
 */
@@ -80,7 +79,7 @@ typedef struct PgCtx {
 } PgCtx;
 PG_API void pg_init(PgCtx*); /* just zeros ctx. can use PgCtx pg = {0} instead */
 /* set strip_flag to 1 to trim whitespace from the ends of strings otherwise
- * fixed length strings in postgres shorter than the fixed limit are padded 
+ * fixed length strings in postgres shorter than the fixed limit are padded
  * with spaces */
 PG_API void pg_strip(PgCtx *pg, int strip_flag);
 PG_API int pg_startup(PgCtx *pg, PgMsg *msg, const char *user, const char *db);
@@ -96,10 +95,10 @@ PG_API const char *pg_strerror(PgCtx*, int return_code);
 PG_API void pg_destroy(PgCtx*);
 
 #ifndef PG_NOSOCKET
-/* returns socket or < 0 on error. 
+/* returns socket or < 0 on error.
  * timeout_sec is send/recv timeout.
  * Set to -1 for no timeout */
-PG_API int pg_connect(PgCtx *pg, const char* host, int port, const char *database, 
+PG_API int pg_connect(PgCtx *pg, const char* host, int port, const char *database,
 	const char *user, const char *password, int timeout_sec);
 PG_API int pg_query(PgCtx *pg, const char *format, ...);
 PG_API int pg_recv_columns(PgCtx *pg, PgCol *col, int *ncol);
@@ -119,7 +118,7 @@ PG_API int pg_recv_columns(PgCtx *pg, PgCol *col, int *ncol);
  *       pg_destroy() to destroy the connection but don't use
  *       PgCtx for anything else
  *
- *       
+ *
  * example:
  * int id;
  * char *name, *description;
@@ -200,13 +199,13 @@ pg_reserve(PgCtx *pg, int n) {
 	if(pg->nbuf < n) {
                 sz = pg->nbuf * 2;
                 if(sz < n) sz = n;
-                p = realloc(pg->buf, sz);
+                p = (char*)realloc(pg->buf, sz);
                 if(!p) {
 			free(pg->buf);
 			pg->buf = 0;
 			pg->nbuf = 0;
 			return PG_MEMORY;
-		}	
+		}
                 pg->buf = p;
                 pg->nbuf = n;
         }
@@ -232,10 +231,10 @@ pg_puterr(PgCtx *pg, const char *format, ...) {
 }
 
 /* return 1 on error, 0 on success */
-static int 
+static int
 pg_slice(PgMsg *slice, int count, char **p) {
 	if(count > slice->n || count < 0) {
-		slice->p += slice->n; 
+		slice->p += slice->n;
 		slice->n = 0;
 		return 1;
 	}
@@ -244,7 +243,7 @@ pg_slice(PgMsg *slice, int count, char **p) {
 }
 
 /* write big endian */
-static void 
+static void
 pg_writeint(char **pp, int len, unsigned value) {
 	unsigned char *p = (unsigned char*)*pp;
 	switch(len) {
@@ -264,13 +263,13 @@ pg_readint(char **pp, int len) {
 	unsigned char *p = (unsigned char*)*pp;
 	assert(len >= 1);
 	assert(len <= 4);
-	if(len >= 1 && len <= 4) 
+	if(len >= 1 && len <= 4)
 		while(len--) r |= *p++ << (8 * len);
 	*pp = (char*)p;
 	return r;
 }
 
-static const char* 
+static const char*
 pg_readstr(PgMsg *s) {
 	char *start;
 
@@ -284,7 +283,7 @@ pg_readstr(PgMsg *s) {
 	return start;
 }
 
-static char* 
+static char*
 pg_append(char *dst, const char *text) {
 	int n1, n2, n3;
 	char *d;
@@ -311,7 +310,7 @@ pg_writestr(PgMsg *s, const char *text) {
 	n = strlen(text) + 1;
 	if(pg_slice(s, n, &p)) return 1;
 	memcpy(p, text, n);
-	return 0;	
+	return 0;
 }
 
 /* return 1 on error 0 on success */
@@ -319,7 +318,7 @@ static int
 pg_writekv(PgMsg *s, const char *key, const char *value) {
 	assert(key);
 	assert(value);
-	
+
 	if(pg_writestr(s, key)) return 1;
 	if(pg_writestr(s, value)) return 1;
 	return 0;
@@ -329,7 +328,7 @@ pg_writekv(PgMsg *s, const char *key, const char *value) {
 /*******************************************
 *
 *               PG_MD5
-*         
+*
 ********************************************/
 
 #define PG_MD5_BLOCK_SIZE 64
@@ -346,12 +345,12 @@ typedef struct PG_MD5 {
    for(i=1;i<=64;i++)
        md5_T[i] = (uint32_t)(4294967296.0 * abs(sin(i)));
 */
-static uint32_t 
+static uint32_t
 pg_md5_rotl32(uint64_t x, size_t count)
 {
 	return (uint32_t)((x >> (32 - count)) | (x << count));
 }
-static void 
+static void
 pg_md5_init(PG_MD5 *md5)
 {
 	uint32_t *i;
@@ -364,7 +363,7 @@ pg_md5_init(PG_MD5 *md5)
 	i[2] = 0x98badcfe;
 	i[3] = 0x10325476;
 }
-static void 
+static void
 pg_md5_add(PG_MD5 *md5, const void *bytes, size_t count)
 {
 	int add, remain;
@@ -438,13 +437,13 @@ pg_md5_add(PG_MD5 *md5, const void *bytes, size_t count)
 			} else {
 				f = c ^ (b | ~d);
 				k = (7 * i) & 15;
-			}		
+			}
 
 			t = d;
 			d = c;
 			c = b;
 			b += pg_md5_rotl32(a + f + w[k] + s[i], rot[i]);
-			a = t;	
+			a = t;
 		}
 
 		h[0] += a;
@@ -454,7 +453,7 @@ pg_md5_add(PG_MD5 *md5, const void *bytes, size_t count)
 	}
 }
 /* hash value in md5->hash is now usable */
-static void 
+static void
 pg_md5_finish(PG_MD5 *md5)
 {
 	/* pad final message and append big endian length,
@@ -505,7 +504,7 @@ pg_md5_finish(PG_MD5 *md5)
 
 /* copies min(hash_size, PG_MD5_hash_size) bytes of hash into hash calculated from
    data and returns the number of bytes copied */
-static size_t 
+static size_t
 pg_md5_hash(void *hash, size_t hash_size, const void *data, size_t size)
 {
 	PG_MD5 md5;
@@ -526,11 +525,11 @@ pg_md5_hash(void *hash, size_t hash_size, const void *data, size_t size)
 ********************************************/
 
 /* encrypts user, password, salt into postgres authentication response format */
-static void 
+static void
 pg_md5(
-	const char *username, 
-	const char *password, 
-	const char* salt /* 4 bytes */, 
+	const char *username,
+	const char *password,
+	const char* salt /* 4 bytes */,
 	char out[16*2 + 3 + 1]) {
 	char buf[256];
 	char *p = buf;
@@ -551,16 +550,16 @@ pg_md5(
 	if(p + (ptrdiff_t)len - buf > (ptrdiff_t)buf) return;
 	memcpy(p, username, len); p += len;
 	p[p - buf] = 0;
-	
+
 	pg_md5_hash(sum, sizeof sum, buf, p - buf);
-	
+
 	for(i=0;i<32;i+=2) sprintf(buf + i, "%02x", (unsigned char)sum[i/2]);
 	buf[32] = 0;
 
 	memcpy(buf + 32, salt, 4);
 	buf[36] = 0;
 	pg_md5_hash(sum, sizeof sum, buf, 36);
-	
+
 	memcpy(out, "md5", 3);
 	for(i=0;i<16;i++) {
 		sprintf(out + 3 + i * 2, "%01x", (unsigned char)sum[i] >> 4);
@@ -578,15 +577,15 @@ pg_init(PgCtx *pg) {
 PG_API int
 pg_startup(PgCtx *pg, PgMsg *msg, const char *user, const char *db) {
 	char *p;
-	int rc;	
+	int rc;
 
 	if(pg->state != pg_state_init) return PG_STATE;
 	if((rc = pg_reserve(pg, 1024))) return rc;
-	msg->p = pg->buf; 
+	msg->p = pg->buf;
 	msg->n = pg->nbuf;
 	if(pg_slice(msg, 8, &p)) return PG_PARSE;
 	pg_writeint(&p, 4, 0); /* length placeholder */
-	pg_writeint(&p, 4, 3 << 16); /* protocol version */	
+	pg_writeint(&p, 4, 3 << 16); /* protocol version */
 	if(pg_writekv(msg, "user", user)) return PG_PARSE;
 	if(pg_writekv(msg, "database", db)) return PG_PARSE;
 	if(pg_writekv(msg, "client_encoding", "UTF8")) return PG_PARSE;
@@ -595,9 +594,9 @@ pg_startup(PgCtx *pg, PgMsg *msg, const char *user, const char *db) {
 	if(pg_writekv(msg, "extra_float_digits", "3")) return PG_PARSE; /* must be 3 for round tripping */
 	if(pg_slice(msg, 1, &p)) return PG_PARSE;
 	*p = 0; /* end */
-	
-	msg->n = msg->p - pg->buf; 
-	msg->p = pg->buf; 
+
+	msg->n = msg->p - pg->buf;
+	msg->p = pg->buf;
 	p = msg->p;
 	pg_writeint(&p, 4, msg->n);
 	pg->state = pg_state_startup;
@@ -623,9 +622,9 @@ pg_recvhdr(PgCtx *pg, PgMsg *msg) {
 
 	assert(msg->n == 5);
 	if(pg_slice(msg, 5, &p)) return PG_PARSE;
-	pg->type = *p++;	
+	pg->type = *p++;
 	msg->n = pg_readint(&p, 4) - 4;
-	pg_reserve(pg, msg->n); 
+	pg_reserve(pg, msg->n);
 	msg->p = pg->buf;
 	return 0;
 }
@@ -660,7 +659,7 @@ pg_recvbody(PgCtx *pg, PgMsg *msg) {
 	int rc;
 
 	if((rc = pg_checkerr(pg, msg))) return rc;
-	
+
 
 	switch(pg->state) {
 	case pg_state_error: return PG_ERROR;
@@ -681,8 +680,8 @@ pg_recvbody(PgCtx *pg, PgMsg *msg) {
 		return PG_RECV;
 	case pg_state_authresp:
 		if(pg->type == 'S') { /* parameter status */
-			const char *key = pg_readstr(msg);
-			const char *value = pg_readstr(msg);
+			/* const char *key = pg_readstr(msg);
+			const char *value = pg_readstr(msg); */
 		}
 		else if(pg->type == 'K') { /* cancellation args */
 			/* id = pg_readint(msg, 4);
@@ -696,7 +695,7 @@ pg_recvbody(PgCtx *pg, PgMsg *msg) {
 	default:
 		return pg_puterr(pg, "pg_recvbody unknown state %d", pg->state);
 	}
-	
+
 	return 0;
 }
 
@@ -704,7 +703,7 @@ PG_API int
 pg_genquery(PgCtx *pg, PgMsg *msg, const char* format, ...) {
 	int rc;
 	va_list args;
-	
+
 	va_start(args, format);
 	rc = pg_vgenquery(pg, msg, format, args);
 	va_end(args);
@@ -718,7 +717,7 @@ pg_vgenquery(PgCtx *pg, PgMsg *msg, const char* format, va_list arg) {
 	va_list arg2, arg3;
 
 
-	va_copy(arg2, arg);	
+	va_copy(arg2, arg);
 	va_copy(arg3, arg);
 	n = vsnprintf(0, 0, format, arg3);
 	if(n < 0)  return pg_puterr(pg, "query format string failed");
@@ -737,7 +736,7 @@ pg_vgenquery(PgCtx *pg, PgMsg *msg, const char* format, va_list arg) {
 	msg->n = msg->p - pg->buf;
 	msg->p = pg->buf;
 	p = msg->p + 1;
-	pg_writeint(&p, 4, msg->n - 1); /* length minus query char ('Q') */ 
+	pg_writeint(&p, 4, msg->n - 1); /* length minus query char ('Q') */
 	pg->state = pg_state_query;
 	return 0;
 }
@@ -752,7 +751,7 @@ pg_login(PgCtx *pg, PgMsg *msg, const char *user, const char *pass) {
 	msg->p = pg->buf;
 	msg->n = pg->nbuf;
 	pg_md5(user, pass, pg->salt, md5);
-	
+
 	if(pg_slice(msg, 1, &p)) return PG_MEMORY;
 	*p = 'p'; /* password auth */
 	if(pg_slice(msg, 4, &p)) return PG_MEMORY;
@@ -769,9 +768,9 @@ PG_API int
 pg_recvcol(PgCtx *pg, PgMsg *msg, PgCol *col, int *ncol) {
 	const char *name;
 	char *p;
-	int tableid, colid, form, type, n, rc;
+	int form, type, n, rc;
 	PgCol *end;
-	
+
 	if(pg->state != pg_state_query) return PG_STATE;
 	if((rc = pg_checkerr(pg, msg))) return rc;
 
@@ -781,21 +780,21 @@ pg_recvcol(PgCtx *pg, PgMsg *msg, PgCol *col, int *ncol) {
 	n = pg_readint(&p, 2);
 	if(n < 0) n = 0;
 	if(n < *ncol) *ncol = n;
-	for(end = col + *ncol;col != end;++col) {	
+	for(end = col + *ncol;col != end;++col) {
 		name = pg_readstr(msg);
 		snprintf(col->name, sizeof col->name, "%s", name);
 		if(pg_slice(msg, 10, &p)) return PG_PARSE;
-		tableid = pg_readint(&p, 4);
-		colid = pg_readint(&p, 2);
+		/* tableid = */ pg_readint(&p, 4);
+		/* colid = */ pg_readint(&p, 2);
 		type = pg_readint(&p, 4);
 		switch(type) {
 		case 16: /* BOOLOID */
 			memcpy(col->type, "bool", 5); break;
-		case 17: /* BYTEAOID */					
+		case 17: /* BYTEAOID */
 			memcpy(col->type, "arra", 5); break;
 		case 20: /* INT8OID */
 		case 21: /* INT2OID */
-		case 23: /* INT4OID */		
+		case 23: /* INT4OID */
 			memcpy(col->type, "int", 4); break;
 		case 114: /* JSONOID */
 			memcpy(col->type, "json", 5); break;
@@ -811,7 +810,7 @@ pg_recvcol(PgCtx *pg, PgMsg *msg, PgCol *col, int *ncol) {
 			memcpy(col->type, "date", 5); break;
 		case 2950: /* UUIDOID */
 			memcpy(col->type, "uuid", 5); break;
-		case 25: /* TEXTOID */			
+		case 25: /* TEXTOID */
 		default: memcpy(col->type, "text", 5); break;
 		}
 		if(pg_slice(msg, 8, &p)) return PG_PARSE;
@@ -820,16 +819,16 @@ pg_recvcol(PgCtx *pg, PgMsg *msg, PgCol *col, int *ncol) {
 		form = pg_readint(&p, 2);
 		if(form != 0) return PG_FORMAT;
 		if(col->size < 0 && col->mod >= 4 && !strcmp(col->type, "text"))
-			col->size = col->mod - 4; /* 4 must be length prefix for strings */		
+			col->size = col->mod - 4; /* 4 must be length prefix for strings */
 	}
 	pg->state = pg_state_row;
 	return 0;
 }
 
-static int64_t 
+static int64_t
 pg_parsei64(const char *text, int len) {
 	int64_t i;
-	
+
 	if(len < 0) return 0; /* null */
 
 	i = 0;
@@ -839,8 +838,8 @@ pg_parsei64(const char *text, int len) {
 	}
 	return i;
 }
-static int pg_parseint(const char *text, int len) { 
-	return (int)pg_parsei64(text, len); 
+static int pg_parseint(const char *text, int len) {
+	return (int)pg_parsei64(text, len);
 }
 
 PG_API int
@@ -864,7 +863,7 @@ pg_trim(char *text) {
 	int n;
 	char *p;
 
-	while(*text && pg_iswhite(*text)) ++text;	
+	while(*text && pg_iswhite(*text)) ++text;
 	n = strlen(text);
 	if(n) {
 		p = text + n - 1;
@@ -878,7 +877,7 @@ pg_vnextrow(PgCtx *pg, PgMsg *msg, const char *format, va_list args) {
 	char *p;
 	const char **sp;
 	int rc, ncol, i, len, n, *ip, off;
-	
+
 	/* it's optional whether or not the user calls pg_recvcol previously or not.
 	 * if not then skip it and continue with rows */
 	if(pg->state == pg_state_query) {
@@ -898,7 +897,7 @@ pg_vnextrow(PgCtx *pg, PgMsg *msg, const char *format, va_list args) {
 		assert(pg->buf);
 		for(i=0;i<ncol && i<n;i++) {
 			if(pg_slice(msg, 4, &p)) return PG_PARSE;
-			len = pg_readint(&p, 4);	
+			len = pg_readint(&p, 4);
 
 			switch(format[i]) {
 			case 's':
@@ -923,9 +922,9 @@ pg_vnextrow(PgCtx *pg, PgMsg *msg, const char *format, va_list args) {
 					memmove(p + 1, p, n - (int)(p - (char*)pg->buf));
 					++msg->p;
 					*p = 0;
-				}			
+				}
 
-				if(pg->strip) *sp = pg_trim((char*)*sp);				
+				if(pg->strip) *sp = pg_trim((char*)*sp);
 				break;
 			case 'i':
 				ip = va_arg(args, int*);
@@ -936,18 +935,18 @@ pg_vnextrow(PgCtx *pg, PgMsg *msg, const char *format, va_list args) {
 				if(pg_slice(msg, len, &p)) return PG_PARSE;
 				*ip = pg_parseint(p, len);
 				break;
-			default:	
+			default:
 				return pg_puterr(pg, "pg_next unknown format %c", format[i]);
 			}
 		}
 		assert(pg->buf);
 		return PG_ROW;
-	case 'C': /* command complete. 
+	case 'C': /* command complete.
 		but need to wait for 'Z' read for new query */
 		return PG_RECV;
 	case 'Z': /* ready for next query */
 		break; /* all done */
-	default: 
+	default:
 		/* unnknown message. wait for next query */
 		return PG_RECV;
 	}
@@ -966,7 +965,9 @@ pg_strip(PgCtx *pg, int flag) { pg->strip = flag ? 1 : 0; }
 
 	#define SHUT_RDWR SD_BOTH
 	#define close closesocket
-	#pragma comment(lib, "ws2_32.lib")
+	#ifdef _MSC_VER
+		#pragma comment(lib, "ws2_32.lib")
+	#endif
 #else
 	#include <fcntl.h>
 	#include <netdb.h>
@@ -996,7 +997,7 @@ static void pg_socket_init() {
 }
 
 
-static int 
+static int
 pg_socket_keepalive(int fd) {
 #ifdef _WIN32
 	/* TODO: implement */
@@ -1022,7 +1023,7 @@ pg_socket_keepalive(int fd) {
 }
 
 /* set timeout for each individual send and recv call */
-static void 
+static void
 pg_socket_timeout(int socket, int timeout_in_sec) {
 #if _WIN32
 	timeout_in_sec *= 1000;
@@ -1042,13 +1043,14 @@ pg_socket_timeout(int socket, int timeout_in_sec) {
 
 static int
 pg_socket_connect(const char* host, int port, const void *buf, ptrdiff_t n, int timeout) {
-	int fd,opt, fastopen=0, rc;
-	size_t sent;
+	int fd, fastopen=0, rc;
+	ptrdiff_t sent;
 	char *p = (char*)buf;
 	struct addrinfo hints = {0}, *res, *addr;
 	char ports[16];
 
 #ifdef PG_SOCKET_FASTOPEN
+	int opt;
 	fastopen = 1;
 #endif
 
@@ -1059,15 +1061,15 @@ pg_socket_connect(const char* host, int port, const void *buf, ptrdiff_t n, int 
 	hints.ai_protocol = IPPROTO_TCP;
 	/* hints.ai_flags = AI_ADDRCONFIG; */
 	rc = getaddrinfo(host, ports, &hints, &res);
-	if(rc) return -1;	
+	if(rc) return -1;
 
 	for(addr=res;addr;addr=addr->ai_next) {
 		fd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-		if(fd >= 0) break;	
+		if(fd >= 0) break;
 	}
 
 	if(!addr) return -2; /* connection failed */
-	
+
 
 #ifdef PG_SOCKET_FASTOPEN
 	if(fastopen) {
@@ -1092,7 +1094,7 @@ pg_socket_connect(const char* host, int port, const void *buf, ptrdiff_t n, int 
 	while(sent != n) {
 		rc = (int)(n - sent);
 		if(sent || !fastopen) rc = send(fd, p + sent, rc, 0);
-#ifdef PG_SOCKET_FASTOPEN		
+#ifdef PG_SOCKET_FASTOPEN
 		else rc = sendto(fd, p + sent, rc, MSG_FASTOPEN, addr->ai_addr, addr->ai_addrlen);
 #endif
 		if(rc <= 0) {
@@ -1141,7 +1143,7 @@ pg_socket_send(int fd, const void *buf, ptrdiff_t n) {
 	int rc;
 
 	while(sent != n) {
-		rc = send(fd, p + sent, (int)(n - sent), 0); 
+		rc = send(fd, p + sent, (int)(n - sent), 0);
 		if(rc <= 0) {
 			if(rc == -1 && errno == EINTR) continue;
 			if(rc == -1 && (errno == EWOULDBLOCK || errno == EAGAIN)) break;
@@ -1167,9 +1169,9 @@ pg_recvmsg(PgCtx *pg, PgMsg *msg) {
 	return 0;
 }
 
-PG_API int 
+PG_API int
 pg_connect(
-	PgCtx *pg, const char* host, int port, const char *database, 
+	PgCtx *pg, const char* host, int port, const char *database,
 	const char *user, const char *password, int timeout_sec) {
 	int fd, rc;
 	PgMsg msg;
@@ -1218,7 +1220,7 @@ pg_query(PgCtx *pg, const char *format, ...) {
 		if(rc) return rc;
 		return PG_UNKNOWN;
 	}
-	
+
 	return 0;
 }
 
@@ -1242,12 +1244,12 @@ pg_next(PgCtx *pg, const char *format, ...) {
 	va_start(arg, format);
 	rc = pg_vnextrow(pg, &msg, format, arg);
 	va_end(arg);
-	return rc;	
+	return rc;
 }
 
 #endif
 
-PG_API void 
+PG_API void
 pg_destroy(PgCtx* pg) {
 	free(pg->buf);
 #ifndef PG_NOSOCKET
@@ -1260,25 +1262,21 @@ pg_destroy(PgCtx* pg) {
 int main() {
 	char *name, *desc, *type;
 	PgCtx pg = {0}; /* important. zero init */
-	int ncol, id, rc, fd, i;
-	PgCol col[8];
-	const char text[] = "The quick brown fox jumps over the lazy dog";
-	char hash[16];
-
+	int id, rc;
 
 	pg_init(&pg);
 	pg_strip(&pg, 1);
 	if((rc = pg_connect(&pg, "localhost", 5432, "animals", "clayton", "password", 60*5)) < 0) goto error;
-	fd = rc;
 	if((rc = pg_query(&pg, "SELECT id, %s, name, description FROM dogs", "type"))) goto error;
 
 
-#if 0   /* this can be set to one to see the result */	
+#if 0   /* this can be set to one to see the result */
 	/* this section is optional. Enable it to get information about each returned column
 	 * in the query. if disabled then pg_next will silently ignore it */
-	ncol = (int)(sizeof col / sizeof col[0]);
-	if((rc = pg_recv_columns(&pg, col, &ncol))) goto error;	
-	for(i=0;i<ncol;i++) printf("%s(%s:%d) ", col[i].name, col[i].type, col[i].size < 0 ? col[i].mod : col[i].size);	
+	PgCol col[8];
+	int ncol = (int)(sizeof col / sizeof col[0]);
+	if((rc = pg_recv_columns(&pg, col, &ncol))) goto error;
+	for(i=0;i<ncol;i++) printf("%s(%s:%d) ", col[i].name, col[i].type, col[i].size < 0 ? col[i].mod : col[i].size);
 	printf("\n");
 #endif
 	for(;;) {
@@ -1299,7 +1297,7 @@ error:
 
 #endif
 
-/* 
+/*
 ------------------------------------------------------------------------------
 This software is available under 2 licenses -- choose whichever you prefer.
 ------------------------------------------------------------------------------

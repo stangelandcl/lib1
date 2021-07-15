@@ -6,7 +6,10 @@ Public domain single file C libraries in the vein of https://github.com/nothings
 As fast as jsmn. Faster than cJSON. Uses much less memory than either.
 - [json2.h](json2.h) - faster, less precise parser running at 60-70% of simdjson.
 See bottom of file for example
+- [jwt.h](jwt.h) - self-contained JWT (JSON Web Token) parser and validator. Web downloads
+  must be made externally. This lib only contains logic for hashing, RSA validation, and parsing
 - [md5.h](md5.h) - small md5 hash function
+- [noise.h](noise.h) - modified noise encryption protocol
 - [rsa.h](rsa.h) - RSA sign and verify
 - [postgres.h](postgres.h) - minimal postgres driver handling text protocol queries and md5
   password authentication only

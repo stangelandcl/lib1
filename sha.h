@@ -1,6 +1,14 @@
 #ifndef SHA_H
 #define SHA_H
 
+/*
+ * #define SHA_IMPLEMENTATION in one file before including or
+ * #define SHA_STATIC before each include
+ * example at bottom of file
+ * public domain license at end of file
+ */
+
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -24,6 +32,10 @@
 #define SHA384_HASH_SIZE 48
 #define SHA512_HASH_SIZE 64
 #define SHA_MAX_HASH_SIZE SHA512_HASH_SIZE
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef uint8_t ShaType;
 #define SHA1 2
@@ -50,6 +62,10 @@ SHA_API void sha_init(Sha *ctx, ShaType type);
 SHA_API void sha_add(Sha *ctx, const void *bytes, size_t count);
 SHA_API void sha_finish(Sha *ctx);
 
+#ifdef __cplusplus
+}
+#endif
+
 #endif
 
 #ifdef SHA_IMPLEMENTATION
@@ -60,7 +76,8 @@ SHA_API void sha_finish(Sha *ctx);
    for(i=1;i<=64;i++)
        md5_T[i] = (uint32_t)(4294967296.0 * abs(sin(i)));
 */
-static uint32_t sha_swap_u32(uint32_t x) {
+static uint32_t
+sha_swap_u32(uint32_t x) {
 #if defined(__GNUC__)
         return __builtin_bswap32(x);
 #else
@@ -70,7 +87,8 @@ static uint32_t sha_swap_u32(uint32_t x) {
         return x;
 #endif
 }
-static uint64_t sha_swap_u64(uint64_t x) {
+static uint64_t
+sha_swap_u64(uint64_t x) {
 #if defined(__GNUC__)
         return __builtin_bswap64(x);
 #else
@@ -82,57 +100,74 @@ static uint64_t sha_swap_u64(uint64_t x) {
         return x;
 #endif
 }
-static uint64_t sha_rotr64(uint64_t x, size_t count) {
+static uint64_t
+sha_rotr64(uint64_t x, size_t count) {
         return (x << (64 - count)) | (x >> count);
 }
-static uint32_t sha_rotr32(uint32_t x, size_t count) {
+static uint32_t
+sha_rotr32(uint32_t x, size_t count) {
         return (uint32_t)((x << (32 - count)) | (x >> count));
 }
-static uint32_t sha_rotl32(uint64_t x, size_t count) {
+static uint32_t
+sha_rotl32(uint64_t x, size_t count) {
         return (uint32_t)((x >> (32 - count)) | (x << count));
 }
-static uint32_t sha_ch32(uint32_t x, uint32_t y, uint32_t z) {
+static uint32_t
+sha_ch32(uint32_t x, uint32_t y, uint32_t z) {
         /* return (x & y) ^ (~x & z); */
         return (x & (y ^ z)) ^ z;
 }
-static uint64_t sha_ch64(uint64_t x, uint64_t y, uint64_t z) {
+static uint64_t
+sha_ch64(uint64_t x, uint64_t y, uint64_t z) {
         return (x & (y ^ z)) ^ z;
 }
-static uint32_t sha_maj32(uint32_t x, uint32_t y, uint32_t z) {
+static uint32_t
+sha_maj32(uint32_t x, uint32_t y, uint32_t z) {
         /* return (x & y) ^ (x & z) ^ (y & z); */
         return (x & (y | z)) | (y & z);
 }
-static uint64_t sha_maj64(uint64_t x, uint64_t y, uint64_t z) {
+static uint64_t
+sha_maj64(uint64_t x, uint64_t y, uint64_t z) {
         return (x & (y | z)) | (y & z);
 }
-static uint32_t sha_parity(uint32_t x, uint32_t y, uint32_t z) {
+static uint32_t
+sha_parity(uint32_t x, uint32_t y, uint32_t z) {
         return x ^ y ^ z;
 }
-static uint32_t sha256_sigma0(uint32_t x) {
+static uint32_t
+sha256_sigma0(uint32_t x) {
         return sha_rotr32(x, 7) ^ sha_rotr32(x, 18) ^ (x >> 3);
 }
-static uint32_t sha256_sigma1(uint32_t x) {
+static uint32_t
+sha256_sigma1(uint32_t x) {
         return sha_rotr32(x, 17) ^ sha_rotr32(x, 19) ^ (x >> 10);
 }
-static uint32_t sha256_sigma2(uint32_t x) {
+static uint32_t
+sha256_sigma2(uint32_t x) {
         return sha_rotr32(x, 2) ^ sha_rotr32(x, 13) ^ sha_rotr32(x, 22);
 }
-static uint32_t sha256_sigma3(uint32_t x) {
+static uint32_t
+sha256_sigma3(uint32_t x) {
         return sha_rotr32(x, 6) ^ sha_rotr32(x, 11) ^ sha_rotr32(x, 25);
 }
-static uint64_t sha512_sigma0(uint64_t x) {
+static uint64_t
+sha512_sigma0(uint64_t x) {
         return sha_rotr64(x, 1) ^ sha_rotr64(x, 8) ^ (x >> 7);
 }
-static uint64_t sha512_sigma1(uint64_t x) {
+static uint64_t
+sha512_sigma1(uint64_t x) {
         return sha_rotr64(x, 19) ^ sha_rotr64(x, 61) ^ (x >> 6);
 }
-static uint64_t sha512_sigma2(uint64_t x) {
+static uint64_t
+sha512_sigma2(uint64_t x) {
         return sha_rotr64(x, 28) ^ sha_rotr64(x, 34) ^ sha_rotr64(x, 39);
 }
-static uint64_t sha512_sigma3(uint64_t x) {
+static uint64_t
+sha512_sigma3(uint64_t x) {
         return sha_rotr64(x, 14) ^ sha_rotr64(x, 18) ^ sha_rotr64(x, 41);
 }
-SHA_API void sha_init(Sha *ctx, ShaType type) {
+SHA_API void
+sha_init(Sha *ctx, ShaType type) {
         uint32_t *i;
 
         memset(ctx, 0, sizeof(*ctx));
@@ -216,14 +251,16 @@ SHA_API void sha_init(Sha *ctx, ShaType type) {
                 break;
         }
 }
-static void sha_swap_hash(Sha *ctx){
+static void
+sha_swap_hash(Sha *ctx){
         size_t i;
 		uint32_t *h = (uint32_t*)ctx->sha;
 		for(i=0;i<ctx->nhash/4;i++) h[i] = sha_swap_u32(h[i]);
 }
 
 
-SHA_API void sha_add(Sha *ctx, const void *bytes, size_t count) {
+SHA_API void
+sha_add(Sha *ctx, const void *bytes, size_t count) {
         static const uint64_t sha512_K[] = {
                 0x428A2F98D728AE22ll, 0x7137449123EF65CDll, 0xB5C0FBCFEC4D3B2Fll,
                 0xE9B5DBA58189DBBCll, 0x3956C25BF348B538ll, 0x59F111F1B605D019ll,
@@ -457,14 +494,10 @@ SHA_API void sha_add(Sha *ctx, const void *bytes, size_t count) {
                 }
                 }
         }
-#undef F
-#undef G
-#undef H
-#undef I
-#undef ROUND
 }
 /* hash value in ctx->hash is now usable */
-SHA_API void sha_finish(Sha *ctx) {
+SHA_API void
+sha_finish(Sha *ctx) {
         /* pad final message and append big endian length,
            then process the final block
 
@@ -525,7 +558,8 @@ SHA_API void sha_finish(Sha *ctx) {
 
 /* copies min(hash_size, sha_hash_size) bytes of hash into hash calculated from
    data and returns the number of bytes copied */
-SHA_API int sha_hash(ShaType type, void *hash, int hash_size,
+SHA_API int
+sha_hash(ShaType type, void *hash, int hash_size,
 	const void *data, int size)
 {
         Sha ctx;

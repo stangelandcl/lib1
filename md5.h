@@ -1,13 +1,13 @@
 #ifndef HAVE_MD5_H
 #define HAVE_MD5_H
 
-/* 
+/*
    From https://github.com/stangelandcl/lib1/md5.h
    License and example at end of file. Search MD5_EXAMPLE
    #define MD5_IMPLEMENTATION in one file unless
    MD5_STATIC is defined then it can be used in multiple files
    Example at end of file. Search for MD5_EXAMPLE
- * */
+ */
 
 #if defined(MD5_STATIC) || defined(MD5_EXAMPLE)
 #define MD5_API static
@@ -51,13 +51,13 @@ MD5_API size_t md5_hash(void *hash, size_t hash_size, const void *data, size_t s
    for(i=1;i<=64;i++)
        md5_T[i] = (uint32_t)(4294967296.0 * abs(sin(i)));
 */
-static uint32_t 
+static uint32_t
 md5_rotl32(uint64_t x, size_t count)
 {
 	return (uint32_t)((x >> (32 - count)) | (x << count));
 }
 
-MD5_API void 
+MD5_API void
 md5_init(MD5 *md5)
 {
 	uint32_t *i;
@@ -70,7 +70,7 @@ md5_init(MD5 *md5)
 	i[2] = 0x98badcfe;
 	i[3] = 0x10325476;
 }
-MD5_API void 
+MD5_API void
 md5_add(MD5 *md5, const void *bytes, size_t count)
 {
 	int add, remain;
@@ -144,13 +144,13 @@ md5_add(MD5 *md5, const void *bytes, size_t count)
 			} else {
 				f = c ^ (b | ~d);
 				k = (7 * i) & 15;
-			}		
+			}
 
 			t = d;
 			d = c;
 			c = b;
 			b += md5_rotl32(a + f + w[k] + s[i], rot[i]);
-			a = t;	
+			a = t;
 		}
 
 		h[0] += a;
@@ -160,7 +160,7 @@ md5_add(MD5 *md5, const void *bytes, size_t count)
 	}
 }
 /* hash value in md5->hash is now usable */
-MD5_API void 
+MD5_API void
 md5_finish(MD5 *md5)
 {
 	/* pad final message and append big endian length,
@@ -211,7 +211,7 @@ md5_finish(MD5 *md5)
 
 /* copies min(hash_size, MD5_hash_size) bytes of hash into hash calculated from
    data and returns the number of bytes copied */
-MD5_API size_t 
+MD5_API size_t
 md5_hash(void *hash, size_t hash_size, const void *data, size_t size)
 {
 	MD5 md5;
@@ -232,14 +232,14 @@ int main() {
 	const char text[] = "The quick brown fox jumps over the lazy dog";
 	assert(md5_hash(hash, sizeof hash, text, sizeof text - 1) == MD5_HASH_SIZE);
 	printf("actual   ");
-	for(i=0;i<sizeof hash;i++) printf("%02x", hash[i]);
+	for(i=0;i<(int)sizeof hash;i++) printf("%02x", hash[i]);
 	printf("\n");
 	printf("expected 9e107d9d372bb6826bd81d3542a419d6\n");
 	return 0;
 }
 #endif
 
-/* 
+/*
 ------------------------------------------------------------------------------
 This software is available under 2 licenses -- choose whichever you prefer.
 ------------------------------------------------------------------------------
