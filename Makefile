@@ -8,6 +8,11 @@ base64:
 	$(CXX) $(OPT) -x c++ -DBASE64_EXAMPLE base64.h && ./a.out
 	$(CC) $(OPT) -x c -DBASE64_EXAMPLE base64.h && ./a.out
 
+hash:
+	$(CXX) $(OPT) -x c++ -DHASH_EXAMPLE hash.h && ./a.out
+	$(CC) $(OPT) -x c -DHASH_EXAMPLE hash.h && ./a.out
+
+
 json:
 	$(CXX) $(OPT) -x c++ -DJSON_EXAMPLE json.h -lm
 	$(CC) $(OPT)  -x c -DJSON_EXAMPLE json.h -lm && ./a.out
