@@ -331,12 +331,7 @@ json_float(JsonTok *t) {
 	int64_t i = 0, j=0, jj=1, k=0, s = 1, ks=1;
 	double f = 0.0;
 	if(p != e) {
-#if 0
-		int m = *p == '-';
-		p += m; s *= m * -2;
-#else
 		if(*p == '-') {++p; s = -1; } /* sign */
-#endif
 		for(;p != e && *p>='0' && *p<='9';++p) /* int */
 			i = i * 10 + (*p - '0');
 		f = (double)i;
@@ -350,18 +345,11 @@ json_float(JsonTok *t) {
 		f *= s; /* must be done after adding in the fraction */
 		if(p != e && (*p == 'e' || *p=='E')) { /* exponent */
 			if(++p < e) {
-#if 0
-				if(*p == '+' || *p == '-') {
-					ks = ks + (*p == '-') * -2;
-					++p;
-				}
-#else
 				if(*p == '+') ++p; /* exponent sign */
 				else if(*p == '-') {
 					ks = -1;
 					++p;
 				}
-#endif
 				for(;p != e && *p>='0' && *p<='9';++p)
 					k = k * 10 + (*p - '0');
 				f *= pow(10, (double)(k * ks));

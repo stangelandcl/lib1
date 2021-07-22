@@ -17,6 +17,11 @@ json:
 	$(CXX) $(OPT) -x c++ -DJSON_EXAMPLE json.h -lm
 	$(CC) $(OPT)  -x c -DJSON_EXAMPLE json.h -lm && ./a.out
 
+json2:
+	$(CXX) $(OPT) -x c++ -DJSON_EXAMPLE json2.h -lm
+	$(CC) $(OPT)  -x c -DJSON_EXAMPLE json2.h -lm && ./a.out
+
+
 json_fuzz:
 	clang -x c -O3 -ggdb3 -fno-inline-functions -DJSON_FUZZ json2.h -fsanitize=address,undefined,fuzzer -lm
 	./a.out -max_len=100000000
