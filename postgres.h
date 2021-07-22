@@ -999,14 +999,19 @@ static void pg_socket_init() {
 
 static int
 pg_socket_keepalive(int fd) {
+	int opt = 1;
+	setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (char*)&opt, sizeof opt);
+
 #ifdef _WIN32
-	/* TODO: implement */
+	DWORD cnt;
+	struct tcp_keepalive alive;
+	alive.keepalivetime = 15*60*1000;
+	alive.keepaliveinterval = 60*1000;
+	alive.onoff = TRUE;
+
+	if(WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof alive, 0, 0, &cnt, 0, 0) == SOCKET_ERROR)
+		printf("setting keepalive failed\n");
 #else
-	int opt;
-
-	opt = 1;
-	setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (void*)&opt, sizeof opt);
-
 	/* number of failed probes before dropping connection */
 	opt = 5;
 	setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, (void*)&opt, sizeof opt);
