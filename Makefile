@@ -11,7 +11,7 @@ base64:
 hash:
 	$(CXX) $(OPT) -x c++ -DHASH_EXAMPLE hash.h && ./a.out
 	$(CC) $(OPT) -x c -DHASH_EXAMPLE hash.h && ./a.out
-
+	$(CXX) -O3 hash.cpp && ./a.out
 
 json:
 	$(CXX) $(OPT) -x c++ -DJSON_EXAMPLE json.h -lm

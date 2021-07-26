@@ -2,7 +2,7 @@
 Public domain single file C libraries in the vein of https://github.com/nothings/stb.
 
 - [base64.h](base64.h) - base64 encode/decode. decodes base64url too
-- [hash.h](hash.h) - simple non-resizing, open addressing hash table
+- [hash.h](hash.h) - simple grow-only open addressing hash table
 - [json.h](json.h) - tiny, iterative zero memory overhead JSON parser.
 As fast as jsmn. Faster than cJSON. Uses much less memory than either.
 - [json2.h](json2.h) - faster, less precise parser running at 60-70% of simdjson.
