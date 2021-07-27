@@ -5,6 +5,16 @@
 #include <string.h>
 #include <stdlib.h>
 
+/* FNV-1a */
+static size_t hash1_string(const char *key) {
+	unsigned long long hash = 14695981039346656037ULL;
+	while(*key) {
+		hash ^= (unsigned char)*key;
+		hash *= 1099511628211ULL;
+	}
+	return (size_t)hash;
+}
+
 #define HASH_FOREACH(name, var, t) \
 	for(name##_kvp *var=(t)->table;var != (t)->table+(t)->n;++var)
 
@@ -58,7 +68,7 @@
 			memset(&t->table[i].k, 0, sizeof(key));\
 		next: \
 			if(++j == t->n_table) j = 0;\
-			if(name##_empty(t->table[i].k)) break; \
+			if(name##_empty(t->table[j].k)) break; \
 			h = name##_hashmod(t, t->table[j].k);\
 			/* check if h in (i, j]. if so skip. it is in correct position */\
 			if((i<=j) ? (i<h && h<=j) : (i<h || h<=j)) goto next;\
