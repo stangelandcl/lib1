@@ -21,7 +21,7 @@ typedef size_t (*hash_func)(const void *key, size_t n);
 /* return 0 on not equal and non-0 on equals */
 typedef int (*hash_equals)(const void *key1, const void *key2, size_t n);
 typedef struct Hash {
-	unsigned char *keys, *values, *set, *empty;
+	unsigned char *keys, *values, *set;
 	hash_func hash;
 	hash_equals equals;
 	size_t n, n_table, n_key, n_value;
@@ -102,9 +102,8 @@ hash_grow(Hash *h) {
 	h2.keys = (unsigned char*)malloc(n * h->n_key);
 	h2.values = (unsigned char*)malloc(n * h->n_value);
 	h2.set = (unsigned char*)calloc(1, (n + 7) / 8);
-	h2.empty = (unsigned char*)calloc(1, h->n_key);
 
-	if(!h2.keys || !h2.values || !h2.set ||!h2.empty) {
+	if(!h2.keys || !h2.values || !h2.set) {
 		hash_destroy(&h2);
 		return -1;
 	}
@@ -199,7 +198,6 @@ hash_destroy(Hash *h) {
 	free(h->keys);
 	free(h->values);
 	free(h->set);
-	free(h->empty);
 }
 
 #endif
