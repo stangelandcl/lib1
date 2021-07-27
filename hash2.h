@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#ifndef __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -24,9 +24,9 @@ static void hash_put(Hash *h, const void *key, const void *value);
 static void hash_destroy(Hash *h);
 
 /* FNV-1a */
-static size_t hash_string(const void *key) {
+static size_t hash_string(const void *key, size_t n) {
 	unsigned long long hash = 14695981039346656037ULL;
-	unsigned char *k = (unsigned char*)key;
+	unsigned char *k = *(unsigned char**)key;
 	while(*k) {
 		hash ^= *k++;
 		hash *= 1099511628211ULL;
@@ -34,7 +34,7 @@ static size_t hash_string(const void *key) {
 	return (size_t)hash;
 }
 static int hash_equals_string(const void *a, const void *b, size_t n) {
-	return !strcmp((const char*)a, (const char*)b);
+	return !strcmp(*(const char**)a, *(const char**)b);
 }
 static size_t hash_i32(const void *k, size_t n) {
 	return *(unsigned*)k;
@@ -123,6 +123,17 @@ hash_get(Hash *h, const void *key) {
 	}
 }
 
+static void*
+hash_value(Hash *h, size_t i) {
+	if(h->set[i/8] & (1<<(i%8))) return &h->values[i*h->n_value];
+	return 0;
+}
+static void*
+hash_key(Hash *h, size_t i) {
+	if(h->set[i/8] & (1<<(i%8))) return &h->values[i*h->n_key];
+	return 0;
+}
+
 static int
 hash_get_copy(Hash *h, const void *key, void *value) {
 	void *p = hash_get(h, key);
@@ -135,7 +146,7 @@ hash_get_copy(Hash *h, const void *key, void *value) {
 
 static int
 hash_del(Hash *h, const void *key) {
-	size_t j,k,w,i = hash_mod(h, key);
+	size_t j,w,i = hash_mod(h, key);
 	for(;;) {
 		if(!(h->set[i/8] & (1<<(i % 8)))) return 0;
 		if(h->equals(key, &h->keys[i*h->n_key], h->n_key)) break;
@@ -164,7 +175,7 @@ hash_destroy(Hash *h) {
 	free(h->set);
 	free(h->empty);
 }
-#ifndef __cplusplus
+#ifdef __cplusplus
 }
 #endif
 
@@ -181,8 +192,7 @@ int main(int argc, char **argv) {
 	Hash hash;
 
 	hash_init(&hash, sizeof(int), sizeof(int), hash_i32, hash_equals_i32);
-	int j;
-	int *keys = (int*)malloc(SIZE * sizeof(int));
+	int j, found, *keys = (int*)malloc(SIZE * sizeof(int));
 	for(int i=0;i<SIZE;i++) keys[i] = rand();
 	for(int i=0;i<SIZE;i++) hash_put(&hash, &keys[i], &keys[i]);
 	for(int i=0;i<SIZE;i++) {
@@ -193,6 +203,12 @@ int main(int argc, char **argv) {
 	for(int i=0;i<SIZE;i++)
 		assert(!hash_get_copy(&hash, &keys[i], &j));
 
+	found = 0;
+	for(size_t i=0;i<hash.n;i++) {
+		int *p = hash_value(&hash, i);
+		if(p) ++found;
+	}
+	printf("found %d\n", found);
 	hash_destroy(&hash);
 	return 0;
 }
