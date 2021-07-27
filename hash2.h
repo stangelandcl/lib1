@@ -33,6 +33,8 @@ HASH_API int hash_get_copy(Hash *h, const void *key, void *value);
 HASH_API void hash_put(Hash *h, const void *key, const void *value);
 HASH_API void hash_destroy(Hash *h);
 HASH_API int hash_del(Hash *h, const void *key);
+HASH_API void* hash_value(Hash *h, size_t i);
+HASH_API void* hash_key(Hash *h, size_t i);
 HASH_API void hash_destroy(Hash *h);
 HASH_API size_t hash_string(const void *key, size_t n);
 HASH_API int hash_equals_string(const void *a, const void *b, size_t n);
@@ -147,12 +149,12 @@ hash_get(Hash *h, const void *key) {
 	}
 }
 
-static void*
+HASH_API void*
 hash_value(Hash *h, size_t i) {
 	if(h->set[i/8] & (1<<(i%8))) return &h->values[i*h->n_value];
 	return 0;
 }
-static void*
+HASH_API void*
 hash_key(Hash *h, size_t i) {
 	if(h->set[i/8] & (1<<(i%8))) return &h->values[i*h->n_key];
 	return 0;
