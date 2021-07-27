@@ -49,6 +49,7 @@ HASH_API int hash_equals_default(const void *a, const void *b, size_t n);
 #endif
 
 #ifdef HASH_IMPLEMENTATION
+
 /* FNV-1a */
 HASH_API size_t hash_string(const void *key, size_t n) {
 	unsigned long long hash = 14695981039346656037ULL;
@@ -77,6 +78,7 @@ HASH_API size_t hash_default(const void *key, size_t n) {
 HASH_API int hash_equals_default(const void *a, const void *b, size_t n) {
 	return !memcmp(a, b, n);
 }
+
 
 HASH_API void
 hash_init(Hash *h, size_t n_key, size_t n_value, hash_func hash, hash_equals equals) {
@@ -118,6 +120,7 @@ hash_grow(Hash *h) {
 	return 0;
 }
 
+
 static size_t
 hash_mod(Hash *h, const void *key) {
 	return h->hash(key, h->n_key) & (h->n_table - 1);
@@ -139,7 +142,9 @@ hash_put(Hash *h, const void *key, const void *value) {
 
 HASH_API void*
 hash_get(Hash *h, const void *key) {
-	size_t i = hash_mod(h, key);
+	size_t i;
+	if(!h->n) return 0;
+	i = hash_mod(h, key);
 	for(;;) {
 		if(!(h->set[i/8] & (1<<(i % 8)))) return 0;
 		if(h->equals(key, &h->keys[i*h->n_key], h->n_key))

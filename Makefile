@@ -1,5 +1,6 @@
 OPT=-Wall -Werror -Wno-unused-function -O0 -ggdb3
 all: base64 json jwt md5 noise postgres postgres_win rsa sha
+WINCC=x86_64-w64-mingw32-gcc
 
 cloc:
 	cloc .
@@ -53,4 +54,13 @@ rsa:
 sha:
 	$(CXX) $(OPT) -x c++ -DSHA_EXAMPLE sha.h && ./a.out
 	$(CC) $(OPT) -x c -DSHA_EXAMPLE sha.h && ./a.out
+
+socks5:
+	$(CXX) $(OPT) -x c++ -DSOCKS5_EXAMPLE socks5.h && ./a.out
+	$(CC) $(OPT) -x c -DSOCKS5_EXAMPLE socks5.h && ./a.out
+	$(WINCC) $(OPT) -x c -DSOCKS5_EXAMPLE socks5.h -mconsole -lws2_32 && ./a.exe
+
+tds:
+	$(CXX) $(OPT) -x c++ -DTDS_EXAMPLE tds.h -lm && ./a.out
+	$(CC) $(OPT) -x c -DTDS_EXAMPLE tds.h -lm && ./a.out
 

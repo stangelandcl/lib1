@@ -16,7 +16,8 @@ See bottom of file for example
 - [postgres.h](postgres.h) - minimal postgres driver handling unencrypted text protocol queries and md5
   password authentication only
 - [sha.h](sha.h) - SHA hashes
-
+- [socks5.h](socks5.h) - small SOCKS5 client for establishing a TCP connection through a SOCKS5
+  proxy
 
 ### json
 Example from the bottom of [json.h](json.h). Search JSON\_EXAMPLE.

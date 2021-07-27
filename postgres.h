@@ -1073,7 +1073,10 @@ pg_socket_connect(const char* host, int port, const void *buf, ptrdiff_t n, int 
 		if(fd >= 0) break;
 	}
 
-	if(!addr) return -2; /* connection failed */
+	if(!addr) {
+		freeaddrinfo(res);
+		return -2; /* connection failed */
+	}
 
 
 #ifdef PG_SOCKET_FASTOPEN
@@ -1090,9 +1093,11 @@ pg_socket_connect(const char* host, int port, const void *buf, ptrdiff_t n, int 
 	if(!fastopen || !n) {
 		rc = connect(fd, addr->ai_addr, addr->ai_addrlen);
 		if(rc < 0) {
+			freeaddrinfo(res);
 			close(fd);
 			return -3;
 		}
+		freeaddrinfo(res);
 	}
 
 	sent = 0;
@@ -1100,7 +1105,10 @@ pg_socket_connect(const char* host, int port, const void *buf, ptrdiff_t n, int 
 		rc = (int)(n - sent);
 		if(sent || !fastopen) rc = send(fd, p + sent, rc, 0);
 #ifdef PG_SOCKET_FASTOPEN
-		else rc = sendto(fd, p + sent, rc, MSG_FASTOPEN, addr->ai_addr, addr->ai_addrlen);
+		else {
+			rc = sendto(fd, p + sent, rc, MSG_FASTOPEN, addr->ai_addr, addr->ai_addrlen);
+			freeaddrinfo(res);
+		}
 #endif
 		if(rc <= 0) {
 			if(rc == -1 && errno == EINTR) continue;
@@ -1150,8 +1158,10 @@ pg_socket_send(int fd, const void *buf, ptrdiff_t n) {
 	while(sent != n) {
 		rc = send(fd, p + sent, (int)(n - sent), 0);
 		if(rc <= 0) {
+#ifndef _WIN32
 			if(rc == -1 && errno == EINTR) continue;
 			if(rc == -1 && (errno == EWOULDBLOCK || errno == EAGAIN)) break;
+#endif
 			if(rc == 0) return 0;
 			printf("error writing %s\n", strerror(errno));
 			return -1;
