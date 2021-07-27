@@ -1,6 +1,13 @@
 #ifndef HASH2_H
 #define HASH2_H
 
+#if defined(HASH_STATIC) || defined(HASH_EXAMPLE)
+#define HASH_API static
+#define HASH_IMPLEMENTATION
+#else
+#define HASH_API extern
+#endif
+
 #include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
@@ -20,11 +27,28 @@ typedef struct Hash {
 	size_t n, n_table, n_key, n_value;
 } Hash;
 
-static void hash_put(Hash *h, const void *key, const void *value);
-static void hash_destroy(Hash *h);
+HASH_API void hash_init(Hash *h, size_t n_key, size_t n_value, hash_func hash, hash_equals equals);
+HASH_API void* hash_get(Hash *h, const void *key);
+HASH_API int hash_get_copy(Hash *h, const void *key, void *value);
+HASH_API void hash_put(Hash *h, const void *key, const void *value);
+HASH_API void hash_destroy(Hash *h);
+HASH_API int hash_del(Hash *h, const void *key);
+HASH_API void hash_destroy(Hash *h);
+HASH_API size_t hash_string(const void *key, size_t n);
+HASH_API int hash_equals_string(const void *a, const void *b, size_t n);
+HASH_API size_t hash_i32(const void *k, size_t n);
+HASH_API int hash_equals_i32(const void *k, const void *k2, size_t n);
+HASH_API size_t hash_default(const void *key, size_t n);
+HASH_API int hash_equals_default(const void *a, const void *b, size_t n);
 
+#ifdef __cplusplus
+}
+#endif
+#endif
+
+#ifdef HASH_IMPLEMENTATION
 /* FNV-1a */
-static size_t hash_string(const void *key, size_t n) {
+HASH_API size_t hash_string(const void *key, size_t n) {
 	unsigned long long hash = 14695981039346656037ULL;
 	unsigned char *k = *(unsigned char**)key;
 	while(*k) {
@@ -33,26 +57,26 @@ static size_t hash_string(const void *key, size_t n) {
 	}
 	return (size_t)hash;
 }
-static int hash_equals_string(const void *a, const void *b, size_t n) {
+HASH_API int hash_equals_string(const void *a, const void *b, size_t n) {
 	return !strcmp(*(const char**)a, *(const char**)b);
 }
-static size_t hash_i32(const void *k, size_t n) {
+HASH_API size_t hash_i32(const void *k, size_t n) {
 	return *(unsigned*)k;
 }
 
-static int hash_equals_i32(const void *k, const void *k2, size_t n) {
+HASH_API int hash_equals_i32(const void *k, const void *k2, size_t n) {
 	return *(int*)k == *(int*)k2;
 }
-static size_t hash_default(const void *key, size_t n) {
+HASH_API size_t hash_default(const void *key, size_t n) {
 	size_t h = 0;
 	memcpy(&h, key, n < sizeof h ? n : h);
 	return h;
 }
-static int hash_equals_default(const void *a, const void *b, size_t n) {
+HASH_API int hash_equals_default(const void *a, const void *b, size_t n) {
 	return !memcmp(a, b, n);
 }
 
-static void
+HASH_API void
 hash_init(Hash *h, size_t n_key, size_t n_value, hash_func hash, hash_equals equals) {
 	h->keys = h->values = h->set = 0;
 	h->n = h->n_table = 0;
@@ -97,7 +121,7 @@ static size_t
 hash_mod(Hash *h, const void *key) {
 	return h->hash(key, h->n_key) & (h->n_table - 1);
 }
-static void
+HASH_API void
 hash_put(Hash *h, const void *key, const void *value) {
 	size_t i;
 	if(h->n >= h->n_table * 70 / 100 && hash_grow(h)) return;
@@ -112,7 +136,7 @@ hash_put(Hash *h, const void *key, const void *value) {
 	h->set[i/8] |= 1 << (i % 8);
 }
 
-static void*
+HASH_API void*
 hash_get(Hash *h, const void *key) {
 	size_t i = hash_mod(h, key);
 	for(;;) {
@@ -134,7 +158,7 @@ hash_key(Hash *h, size_t i) {
 	return 0;
 }
 
-static int
+HASH_API int
 hash_get_copy(Hash *h, const void *key, void *value) {
 	void *p = hash_get(h, key);
 	if(p) {
@@ -144,7 +168,7 @@ hash_get_copy(Hash *h, const void *key, void *value) {
 	return 0;
 }
 
-static int
+HASH_API int
 hash_del(Hash *h, const void *key) {
 	size_t j,w,i = hash_mod(h, key);
 	for(;;) {
@@ -168,16 +192,13 @@ hash_del(Hash *h, const void *key) {
 	return 1;
 }
 
-static void
+HASH_API void
 hash_destroy(Hash *h) {
 	free(h->keys);
 	free(h->values);
 	free(h->set);
 	free(h->empty);
 }
-#ifdef __cplusplus
-}
-#endif
 
 #endif
 

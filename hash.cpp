@@ -2,6 +2,7 @@
 
 #include <unordered_map>
 #include "hash.h"
+#define HASH_IMPLEMENTATION
 #include "hash2.h"
 #include <stdlib.h>
 #include <assert.h>
