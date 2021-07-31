@@ -18,6 +18,7 @@ See bottom of file for example
 - [sha.h](sha.h) - SHA hashes
 - [socks5.h](socks5.h) - small SOCKS5 client for establishing a TCP connection through a SOCKS5
   proxy
+- [url.h](url.h) - parse URL
 
 ### json
 Example from the bottom of [json.h](json.h). Search JSON\_EXAMPLE.
