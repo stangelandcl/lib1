@@ -18,6 +18,8 @@ authority = [user[:password]@]host[:port]
 */
 
 typedef struct Url {
+	/* strings return pointers to buf so much live as long as Url */
+	char buf[256];
 	const char *scheme;
 	const char *user;
 	const char *password;
@@ -28,9 +30,8 @@ typedef struct Url {
 	const char *fragment;
 } Url;
 
-/* in place modifies url to add zeros for string termination.
- * return 0 on success */
-URL_API int url_parse(char *url, Url *result);
+/** return 0 on success */
+URL_API int url_parse(Url *result, const char *url);
 
 #ifdef __cplusplus
 }
@@ -43,15 +44,17 @@ URL_API int url_parse(char *url, Url *result);
 #include <stdio.h>
 
 /* return 0 on success */
-URL_API int url_parse(char *url, Url *result) {
+URL_API int url_parse(Url *result, const char *url) {
 	char *s, *e, *e2;
 	Url *u = result;
+	int n = snprintf(u->buf, sizeof u->buf, "%s", url);
+	if(n >= (int)sizeof u->buf) return -2;
 
 	u->scheme = u->user = u->password = u->host = u->port = u->path = u->query = u->fragment = "";
 
 	/* scheme */
-	s = url;
-	e = strstr(url, ":");
+	s = u->buf;
+	e = strstr(s, ":");
 	if(!e) return -1;
 	*e++ = 0;
 	result->scheme = s;
@@ -116,7 +119,7 @@ int main(int argc, char **argv) {
 	char c[] = "http://bob:pass@example.com";
 	char d[] = "tcp://x:y@test.com:8433/where/at?id=9&id2=4#remainder";
 	Url u;
-	url_parse(d, &u);
+	url_parse(&u, d);
 	assert(!strcmp(u.scheme, "tcp"));
 	assert(!strcmp(u.user, "x"));
 	assert(!strcmp(u.password, "y"));
@@ -126,7 +129,7 @@ int main(int argc, char **argv) {
 	assert(!strcmp(u.query, "id=9&id2=4"));
 	assert(!strcmp(u.fragment, "remainder"));
 
-	url_parse(a, &u);
+	url_parse(&u, a);
 	assert(!strcmp(u.scheme, "https"));
 	assert(!strcmp(u.host, "google.com"));
 	assert(!strcmp(u.port, ""));
@@ -136,7 +139,7 @@ int main(int argc, char **argv) {
 	assert(!strcmp(u.query, ""));
 	assert(!strcmp(u.fragment, ""));
 
-	url_parse(b, &u);
+	url_parse(&u, b);
 	assert(!strcmp(u.scheme, "http"));
 	assert(!strcmp(u.host, "example.com"));
 	assert(!strcmp(u.user, "bob"));
@@ -146,7 +149,7 @@ int main(int argc, char **argv) {
 	assert(!strcmp(u.query, ""));
 	assert(!strcmp(u.fragment, ""));
 
-	url_parse(c, &u);
+	url_parse(&u, c);
 	assert(!strcmp(u.scheme, "http"));
 	assert(!strcmp(u.host, "example.com"));
 	assert(!strcmp(u.user, "bob"));
@@ -155,7 +158,7 @@ int main(int argc, char **argv) {
 	assert(!strcmp(u.path, ""));
 	assert(!strcmp(u.query, ""));
 	assert(!strcmp(u.fragment, ""));
-
+	printf("Success\n");
 }
 #endif
 /* Public Domain (www.unlicense.org)
