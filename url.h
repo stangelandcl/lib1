@@ -19,7 +19,7 @@ authority = [user[:password]@]host[:port]
 
 typedef struct Url {
 	/* strings return pointers to buf so much live as long as Url */
-	char buf[256];
+	char buf[4096];
 	const char *scheme;
 	const char *user;
 	const char *password;
