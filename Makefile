@@ -40,12 +40,12 @@ noise:
 	$(CC) -std=c11 -maes $(OPT) -x c -DNOISE_EXAMPLE noise.h && ./a.out msg
 	$(CXX) -std=c++11 -maes $(OPT) -x c++ -DNOISE_EXAMPLE noise.h && ./a.out msg
 
-postgres:
-	$(CXX) $(OPT) -x c++ -DPG_EXAMPLE postgres.h && ./a.out
-	$(CC) $(OPT) -x c -DPG_EXAMPLE postgres.h && ./a.out
+pg:
+	$(CXX) $(OPT) -x c++ -DPG_EXAMPLE pg.h -lm && ./a.out
+	$(CC) $(OPT) -x c -DPG_EXAMPLE pg.h -lm && ./a.out
 
-postgres_win:
-	x86_64-w64-mingw32-gcc $(OPT) -mconsole -x c -DPG_EXAMPLE postgres.h -lws2_32 && ./a.out
+pg_win:
+	x86_64-w64-mingw32-gcc $(OPT) -mconsole -x c -DPG_EXAMPLE pg.h -lws2_32 && ./a.out
 
 rsa:
 	$(CXX) $(OPT) -x c++ -DRSA_EXAMPLE rsa.h && ./a.out

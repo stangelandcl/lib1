@@ -1,19 +1,20 @@
 ## lib1
 Public domain single file C libraries in the vein of https://github.com/nothings/stb.
 
+Check the bottom of each file for an example and license (public domain)
+
 - [base64.h](base64.h) - base64 encode/decode. decodes base64url too
 - [hash.h](hash.h) - simple grow-only open addressing hash table
 - [hash2.h](hash2.h) - simple non-templated grow-only open addressing hash table
 - [json.h](json.h) - tiny, iterative zero memory overhead JSON parser.
 As fast as jsmn. Faster than cJSON. Uses much less memory than either.
 - [json2.h](json2.h) - faster, less precise parser running at 60-70% of simdjson.
-See bottom of file for example
 - [jwt.h](jwt.h) - self-contained JWT (JSON Web Token) parser and validator. Web downloads
   must be made externally. This lib only contains logic for hashing, RSA validation, and parsing
 - [md5.h](md5.h) - small md5 hash function
 - [noise.h](noise.h) - modified noise encryption protocol
 - [rsa.h](rsa.h) - RSA sign and verify
-- [postgres.h](postgres.h) - minimal postgres driver handling unencrypted text protocol queries and md5
+- [pg.h](pg.h) - minimal postgres driver handling unencrypted text protocol queries and md5
   password authentication only
 - [sha.h](sha.h) - SHA hashes
 - [socks5.h](socks5.h) - small SOCKS5 client for establishing a TCP connection through a SOCKS5

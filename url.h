@@ -18,8 +18,6 @@ authority = [user[:password]@]host[:port]
 */
 
 typedef struct Url {
-	/* strings return pointers to buf so much live as long as Url */
-	char buf[4096];
 	const char *scheme;
 	const char *user;
 	const char *password;
@@ -30,8 +28,15 @@ typedef struct Url {
 	const char *fragment;
 } Url;
 
+typedef struct UrlBuf {
+	/* strings return pointers to buf so much live as long as Url */
+	char buf[4096];
+	Url url;
+} UrlBuf;
+
 /** return 0 on success */
-URL_API int url_parse(Url *result, const char *url);
+URL_API int url_parse(Url *result, char *url);
+URL_API int url_parse_buf(UrlBuf *buf, const char *url);
 
 #ifdef __cplusplus
 }
@@ -43,17 +48,20 @@ URL_API int url_parse(Url *result, const char *url);
 #include <string.h>
 #include <stdio.h>
 
-/* return 0 on success */
-URL_API int url_parse(Url *result, const char *url) {
+URL_API int url_parse_buf(UrlBuf *buf, const char *url) {
+	int n = snprintf(buf->buf, sizeof buf->buf, "%s", url);
+	if(n >= (int)sizeof buf->buf) return -2;
+	return url_parse(&buf->url, buf->buf);
+}
+
+/* return 0 on success. in place modifies url and returns pointers to it in result. */
+URL_API int url_parse(Url *result, char *url) {
 	char *s, *e, *e2;
 	Url *u = result;
-	int n = snprintf(u->buf, sizeof u->buf, "%s", url);
-	if(n >= (int)sizeof u->buf) return -2;
-
 	u->scheme = u->user = u->password = u->host = u->port = u->path = u->query = u->fragment = "";
 
 	/* scheme */
-	s = u->buf;
+	s = url;
 	e = strstr(s, ":");
 	if(!e) return -1;
 	*e++ = 0;
