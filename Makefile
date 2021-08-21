@@ -9,6 +9,10 @@ base64:
 	$(CXX) $(OPT) -x c++ -DBASE64_EXAMPLE base64.h && ./a.out
 	$(CC) $(OPT) -x c -DBASE64_EXAMPLE base64.h && ./a.out
 
+dataframe:
+	$(CXX) $(OPT) -x c++ -DDATAFRAME_EXAMPLE dataframe.h && ./a.out
+	$(CC) $(OPT) -x c -DDATAFRAME_EXAMPLE dataframe.h && ./a.out
+
 hash:
 	$(CXX) $(OPT) -x c++ -DHASH_EXAMPLE hash.h && ./a.out
 	$(CC) $(OPT) -x c -DHASH_EXAMPLE hash.h && ./a.out
