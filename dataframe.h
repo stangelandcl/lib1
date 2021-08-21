@@ -65,10 +65,12 @@ typedef struct DataframeCol {
 
 typedef struct Dataframe {
     DataframeCol cols[DATAFRAME_MAXCOL];
+    char *name;
     size_t ncols, nrows, row_capacity;
     unsigned deserialized : 1;
 } Dataframe;
 
+DATAFRAME_API void dataframe_init(Dataframe*, const char *name);
 DATAFRAME_API DataframeCol* dataframe_addcol(Dataframe*, const char *name, DataframeType);
 DATAFRAME_API void dataframe_reserve(Dataframe*, size_t n_new_rows);
 DATAFRAME_API void dataframe_resize(Dataframe *df, size_t n);
@@ -101,6 +103,12 @@ typedef struct DataframeHeader {
     uint64_t nrows;
     uint32_t ncols;
 } DataframeHeader;
+
+DATAFRAME_API void
+dataframe_init(Dataframe *df, const char *name) {
+    memset(df, 0, sizeof *df);
+    df->name = dataframe_strdup(name);
+}
 
 DATAFRAME_API char*
 dataframe_strdup(const char *str) {
@@ -199,6 +207,10 @@ dataframe_serialize(Dataframe *df, uint8_t **data, size_t *size) {
     h.nrows = df->nrows;
     size_t total = 0;
     total += sizeof h; /* header */
+    char *name = df->name ? df->name : (char*)"";
+    uint32_t n = strlen(name) + 1;
+    total += sizeof(n) + n;
+
     for(size_t i=0;i<df->ncols;i++) {
         DataframeCol *col = &df->cols[i];
         total += strlen(col->name) + sizeof(uint32_t) + 1; /* name */
@@ -212,7 +224,7 @@ dataframe_serialize(Dataframe *df, uint8_t **data, size_t *size) {
         if(col->type == dataframe_str) {
             for(size_t j=0;j<df->nrows;j++) {
                 char *s = col->vals.s[j];
-                uint32_t n = strlen(s) + 1;
+                n = strlen(s) + 1;
                 total += sizeof n + n;
                 printf("row=%zu total=%zu\n", j, total);
             }
@@ -224,9 +236,12 @@ dataframe_serialize(Dataframe *df, uint8_t **data, size_t *size) {
     uint8_t *p = (uint8_t*)malloc(total);
     *data = p;
     memcpy(p, &h, sizeof h); p += sizeof h;
+    n = strlen(name) + 1;
+    memcpy(p, &n, sizeof(n)); p += sizeof n;
+    memcpy(p, name, n); p += n;
     for(size_t i=0;i<df->ncols;i++) {
         DataframeCol *col = &df->cols[i];
-        uint32_t n = strlen(col->name) + 1;
+        n = strlen(col->name) + 1;
         memcpy(p, &n, sizeof n); p += sizeof n;
         memcpy(p, col->name, n); p += n;
         memcpy(p, &col->type, sizeof col->type); p += sizeof col->type;
@@ -238,7 +253,7 @@ dataframe_serialize(Dataframe *df, uint8_t **data, size_t *size) {
         if(col->type == dataframe_str) {
             for(size_t j=0;j<df->nrows;j++) {
                 char *s = col->vals.s[j];
-                uint32_t n = strlen(s) + 1;
+                n = strlen(s) + 1;
                 memcpy(p, &n, sizeof n); p += sizeof n;
                 memcpy(p, s, n); p += n;
                 printf("row=%zu total=%zu\n", j, (size_t)(p - *data));
@@ -264,10 +279,15 @@ dataframe_deserialize(Dataframe *df, const uint8_t *data, size_t size) {
     memcpy(&h, data, sizeof h); data += sizeof h; size -= sizeof h;
     df->ncols = h.ncols;
     df->nrows = df->row_capacity = h.nrows;
+    uint32_t n;
+    if(size < sizeof n) return -1;
+    memcpy(&n, data, sizeof n); data += sizeof n; size -= sizeof n;
+    if(size < n) return -1;
+    df->name = (char*)data; data += n; size -= n;
+
     for(size_t i=0;i<df->ncols;i++) {
         DataframeCol *col = &df->cols[i];
 
-        uint32_t n;
         if(size < sizeof n) return -1;
         memcpy(&n, data, sizeof n); data += sizeof n; size -= sizeof n;
 
@@ -288,7 +308,6 @@ dataframe_deserialize(Dataframe *df, const uint8_t *data, size_t size) {
         if(col->type == dataframe_str) {
             df->cols[i].vals.s = (char**)malloc(sizeof(char*) * df->nrows);
             for(size_t j=0;j<df->nrows;j++) {
-                uint32_t n;
                 if(size < sizeof n) goto error;
                 memcpy(&n, data, sizeof n); data += sizeof n; size -= sizeof n;
                 if(size < n) goto error;
@@ -305,6 +324,7 @@ error:
 
 DATAFRAME_API void
 dataframe_free(Dataframe *df) {
+    if(!df->deserialized) free(df->name);
     for(size_t i=0;i<df->ncols;i++) {
         DataframeCol *col = &df->cols[i];
         if(df->deserialized) {
@@ -334,7 +354,8 @@ static double now() {
         return (double)ts.tv_sec + (double)ts.tv_nsec / 1000.0/1000.0/1000.0;
 }
 int main(int argc, char **argv) {
-    Dataframe df = {0};
+    Dataframe df;
+    dataframe_init(&df, "values");
     DataframeCol *id = dataframe_addcol(&df, "id", dataframe_i32);
     DataframeCol *name = dataframe_addcol(&df, "name", dataframe_str);
     dataframe_reserve(&df, 10);
@@ -355,6 +376,7 @@ int main(int argc, char **argv) {
     assert(d2.deserialized == 1);
     assert(d2.ncols == df.ncols);
     assert(d2.nrows == df.nrows);
+    assert(!strcmp(d2.name, df.name));
     for(size_t i=0;i<df.ncols;i++) {
         DataframeCol *c, *c2;
         c = &df.cols[i];
