@@ -38,6 +38,7 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+#include <stdint.h>
 
 #define PG_MAX_COL 64
 
@@ -118,6 +119,7 @@ PG_API void pg_col(PgParser *, PgValue *);
 /* returns 1 on have value or 0 on null or wrong type in
    which case i will be zero  */
 PG_API int pg_i32(PgValue *v, int *i);
+PG_API int pg_i64(PgValue *v, int64_t *i);
 PG_API int pg_float(PgValue *v, float *f);
 PG_API int pg_double(PgValue *v, double *d);
 /* returns 1 on have value or 0 on null or wrong type in
@@ -1121,6 +1123,14 @@ PG_API int pg_i32(PgValue *v, int *i) {
 	*i = 0;
 	if(v->n <= 0) return 0;
 	*i = (int)pg_parsei64(v->p, v->n);
+	return 1;
+}
+/* returns 1 on have value or 0 on null or wrong type in
+   which case i will be zero  */
+PG_API int pg_i64(PgValue *v, int64_t *i) {
+	*i = 0;
+	if(v->n <= 0) return 0;
+	*i = pg_parsei64(v->p, v->n);
 	return 1;
 }
 
