@@ -1,8 +1,7 @@
 #ifndef DATAFRAME_H
 #define DATAFRAME_H
 
-#include <stddef.h>
-#include <stdint.h>
+/* license (public domain) and example at bottom of file */
 
 #if defined(DATAFRAME_STATIC) || defined(DATAFRAME_EXAMPLE)
 #define DATAFRAME_API static
@@ -10,6 +9,10 @@
 #else
 #define DATAFRAME_API extern
 #endif
+
+#include <stddef.h>
+#include <stdint.h>
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,7 +42,7 @@ enum {
 
 typedef uint8_t DataframeUuid[16];
 
-typedef union DataframeVal {
+typedef union DataframeVals {
     int8_t *i8;
     int16_t *i16;
     int32_t *i32;
@@ -54,13 +57,36 @@ typedef union DataframeVal {
     int64_t *time;
     void *v;
     DataframeUuid* uuid;
+} DataframeVals;
+
+typedef union DataframeVal {
+    int8_t i8;
+    int16_t i16;
+    int32_t i32;
+    int64_t i64;
+    uint8_t u8;
+    uint16_t u16;
+    uint32_t u32;
+    uint64_t u64;
+    float f;
+    double d;
+    char *s;
+    int64_t time;
+    DataframeUuid uuid;
 } DataframeVal;
 
+typedef struct DataframeItem {
+    DataframeVal *v;
+    DataframeType type;
+    size_t item_size;
+} DataframeItem;
 
 typedef struct DataframeCol {
     char *name;
-    DataframeVal vals;
+    DataframeVals vals;
     DataframeType type;
+    size_t item_size; /* in bytes */
+    size_t i;
 } DataframeCol;
 
 typedef struct Dataframe {
@@ -70,20 +96,33 @@ typedef struct Dataframe {
     unsigned deserialized : 1;
 } Dataframe;
 
+typedef struct DataframeBuf {
+    uint8_t *p;
+    size_t n, capacity;
+} DataframeBuf;
+
+DATAFRAME_API void dataframe_buf_reserve(DataframeBuf*, size_t n);
 DATAFRAME_API void dataframe_init(Dataframe*, const char *name);
 DATAFRAME_API DataframeCol* dataframe_addcol(Dataframe*, const char *name, DataframeType);
-DATAFRAME_API void dataframe_reserve(Dataframe*, size_t n_new_rows);
-DATAFRAME_API void dataframe_resize(Dataframe *df, size_t n);
-DATAFRAME_API int dataframe_typesize(DataframeType);
+DATAFRAME_API DataframeItem dataframe_item(Dataframe*, size_t col, size_t row);
+DATAFRAME_API size_t dataframe_itemsize(DataframeItem*);
+DATAFRAME_API void* dataframe_itemptr(DataframeItem*);
+DATAFRAME_API int dataframe_equal(DataframeItem *x, DataframeItem *y);
+DATAFRAME_API size_t dataframe_add(Dataframe *df, size_t n);
+DATAFRAME_API void dataframe_set(Dataframe *df, size_t col, size_t row, const void *data);
+DATAFRAME_API size_t dataframe_typesize(DataframeType);
 DATAFRAME_API DataframeCol* dataframe_col(Dataframe* df, const char *name);
-DATAFRAME_API void dataframe_serialize(Dataframe *df, uint8_t **data, size_t *size);
+DATAFRAME_API void dataframe_serialize(Dataframe *df, DataframeBuf *buf);
 DATAFRAME_API char* dataframe_strdup(const char *str);
+DATAFRAME_API void dataframe_print(Dataframe *df);
 static size_t dataframe_idx(Dataframe *df) { return df->nrows; }
-DATAFRAME_API size_t dataframe_add(Dataframe *df);
+/* clear rows */
+DATAFRAME_API void dataframe_clear(Dataframe *df);
 /* deserializes into read-only memory referencing data, size.
    Do not add-remove or delete from dataframe. do not call dataframe_free.
    do not free or modify data until done using dataframe */
 DATAFRAME_API int dataframe_deserialize(Dataframe *df, const uint8_t *data, size_t size);
+DATAFRAME_API int dataframe_deserialize_copy(Dataframe *df, const uint8_t *data, size_t size);
 DATAFRAME_API void dataframe_free(Dataframe*);
 
 #ifdef __cplusplus
@@ -110,6 +149,88 @@ dataframe_init(Dataframe *df, const char *name) {
     df->name = dataframe_strdup(name);
 }
 
+DATAFRAME_API void
+dataframe_print(Dataframe *df) {
+    /* header */
+    for(size_t k=0;k<df->ncols;k++) {
+        DataframeCol *c = &df->cols[k];
+        if(k) printf(",");
+        printf("%s", c->name);
+    }
+    printf("\n");
+
+    /* body */
+    for(size_t j=0;j<df->nrows;j++) {
+        for(size_t k=0;k<df->ncols;k++) {
+            DataframeCol *c = &df->cols[k];
+            if(k) printf(",");
+            switch(c->type) {
+            case dataframe_i8: printf("%d", c->vals.i8[j]); break;
+            case dataframe_i16: printf("%d", c->vals.i16[j]); break;
+            case dataframe_i32: printf("%d", c->vals.i32[j]); break;
+            case dataframe_time:
+            case dataframe_i64: printf("%ld", c->vals.i64[j]); break;
+            case dataframe_u8: printf("%u", c->vals.u8[j]); break;
+            case dataframe_u16: printf("%u", c->vals.u16[j]); break;
+            case dataframe_u32: printf("%u", c->vals.u32[j]); break;
+            case dataframe_u64: printf("%lu", c->vals.u64[j]); break;
+            case dataframe_double: printf("%f", c->vals.d[j]); break;
+            case dataframe_float: printf("%f", c->vals.f[j]); break;
+            case dataframe_str: printf("%s", c->vals.s[j]); break;
+            case dataframe_uuid:
+                for(size_t x=0;x<sizeof(DataframeUuid);x++)
+                    printf("%02x", c->vals.uuid[j][x]);
+                break;
+            default: printf("(type?)");
+            }
+        }
+        printf("\n");
+    }
+}
+
+DATAFRAME_API DataframeItem
+dataframe_item(Dataframe *df, size_t column, size_t row) {
+    DataframeItem v;
+    DataframeCol *col = &df->cols[column];
+    v.v = (void*)col->vals.u8 + col->item_size * row;
+    v.type = col->type;
+    v.item_size = col->item_size;
+    return v;
+}
+
+DATAFRAME_API size_t
+dataframe_itemsize(DataframeItem *item) {
+    if(item->type == dataframe_str)
+        return strlen(item->v->s) + 1;
+    return item->item_size;
+}
+
+DATAFRAME_API void*
+dataframe_itemptr(DataframeItem *item) {
+    if(item->type == dataframe_str) return item->v->s;
+    else return item->v;
+}
+
+DATAFRAME_API int
+dataframe_equal(DataframeItem *x, DataframeItem *y) {
+    if(x->type != y->type) return -1;
+    if(x->type == dataframe_str)
+        return !strcmp(x->v->s, y->v->s);
+    return !memcmp(x->v, y->v, x->item_size);
+}
+
+DATAFRAME_API void
+dataframe_set(Dataframe *df, size_t coli, size_t row, const void *data) {
+    if(coli >= df->ncols || row >= df->nrows) return;
+    DataframeCol *col = &df->cols[coli];
+    if(col->type == dataframe_str)
+        col->vals.s[row] = dataframe_strdup((const char*)data);
+    else {
+        uint8_t *p = col->vals.u8 + col->item_size * row;
+        memcpy(p, data, col->item_size);
+    }
+}
+
 DATAFRAME_API char*
 dataframe_strdup(const char *str) {
     if(!str) str = "";
@@ -121,46 +242,49 @@ dataframe_strdup(const char *str) {
 
 DATAFRAME_API DataframeCol*
 dataframe_col(Dataframe* df, const char *name) {
-    for(size_t i=0;i<df->nrows;i++) {
+    for(size_t i=0;i<df->ncols;i++) {
         DataframeCol *c = &df->cols[i];
         if(!strcmp(c->name, name)) return c;
     }
     return 0;
 }
 
-DATAFRAME_API void
-dataframe_resize(Dataframe *df, size_t n) {
-    if(df->row_capacity == n) return;
-    for(size_t i=0;i<df->ncols;i++) {
-        DataframeCol *col = &df->cols[i];
-        col->vals.v = realloc(col->vals.v, n * dataframe_typesize(col->type));
+DATAFRAME_API size_t
+dataframe_add(Dataframe *df, size_t n) {
+    size_t req = df->nrows + n;
+    size_t cap;
+    size_t old = df->nrows;
+    if(df->row_capacity < req) {
+        cap = df->row_capacity * 2;
+        if(cap < 1024) cap = 1024;
+        if(cap < req) cap = req;
+        for(size_t i=0;i<df->ncols;i++) {
+            DataframeCol *col = &df->cols[i];
+            col->vals.v = realloc(col->vals.v, cap * col->item_size);
+            memset(col->vals.u8 + old * col->item_size, 0, (cap - old) * col->item_size);
+        }
+        df->row_capacity = cap;
     }
-    df->row_capacity = n;
+    df->nrows += n;
+    assert(df->nrows <= df->row_capacity);
+    return (size_t)old;
 }
 
 DATAFRAME_API void
-dataframe_reserve(Dataframe *df, size_t nnew_rows) {
-    uint64_t req = df->nrows + nnew_rows;
-    uint64_t cap;
-    if(df->row_capacity >= req) return;
-    cap = df->row_capacity * 2;
-    if(cap < 1024) cap = 1024;
-    if(cap < req) cap = req;
-
-    dataframe_resize(df, cap);
+dataframe_clear(Dataframe *df) {
+    for(size_t i=0;i<df->ncols;i++) {
+        DataframeCol *col = &df->cols[i];
+        if(col->type == dataframe_str) {
+            for(size_t j=0;j<df->nrows;j++)
+                free(col->vals.s[j]);
+        }
+    }
+    df->nrows = 0;
 }
 
 DATAFRAME_API size_t
-dataframe_add(Dataframe *df) {
-    size_t n = df->nrows;
-    dataframe_reserve(df, 1);
-    df->nrows++;
-    return n;
-}
-
-DATAFRAME_API int
 dataframe_typesize(DataframeType type) {
-    int sz;
+    size_t sz;
     switch (type) {
     case dataframe_u8:
     case dataframe_i8: sz = 1; break;
@@ -175,7 +299,7 @@ dataframe_typesize(DataframeType type) {
     case dataframe_double: sz = 8; break;
     case dataframe_str: sz = sizeof(char*); break;
     case dataframe_uuid: sz = 16; break;
-    default: sz = -1; break;
+    default: sz = 0; break;
     }
     return sz;
 }
@@ -190,18 +314,31 @@ dataframe_addcol(Dataframe *df, const char *name, DataframeType type) {
     col->name = (char*)malloc(n);
     memcpy(col->name, name, n);
     col->type = type;
-    int sz = dataframe_typesize(type);
-    if(sz < 0) return 0;
-    col->vals.v = malloc(df->row_capacity * (uint32_t)sz);
+    col->item_size = dataframe_typesize(type);
+    if(col->item_size < 0) return 0;
+    col->vals.v = malloc(df->row_capacity * (uint32_t)col->item_size);
     if(!col->vals.v) {
         free(col->vals.v);
         return 0;
     }
+    col->i = df->ncols;
     return &df->cols[df->ncols++];
 }
 
 DATAFRAME_API void
-dataframe_serialize(Dataframe *df, uint8_t **data, size_t *size) {
+dataframe_buf_reserve(DataframeBuf *buf, size_t n) {
+    size_t req = n + buf->n;
+    if(buf->capacity < req) {
+        size_t cap = buf->capacity * 2;
+        if(cap < 1024) cap = 1024;
+        if(cap < req) cap = req;
+        buf->p = realloc(buf->p, cap);
+        buf->capacity = cap;
+    }
+}
+
+DATAFRAME_API void
+dataframe_serialize(Dataframe *df, DataframeBuf *buf) {
     DataframeHeader h = {0};
     h.ncols = df->ncols;
     h.nrows = df->nrows;
@@ -211,12 +348,13 @@ dataframe_serialize(Dataframe *df, uint8_t **data, size_t *size) {
     uint32_t n = strlen(name) + 1;
     total += sizeof(n) + n;
 
+    printf("name=%zu\n", total);
     for(size_t i=0;i<df->ncols;i++) {
         DataframeCol *col = &df->cols[i];
         total += strlen(col->name) + sizeof(uint32_t) + 1; /* name */
         total += sizeof col->type; /* type */
     }
-    printf("total=%zu\n", total);
+    printf("header=%zu\n", total);
 
     for(size_t i=0;i<df->ncols;i++) {
         DataframeCol *col = &df->cols[i];
@@ -224,21 +362,22 @@ dataframe_serialize(Dataframe *df, uint8_t **data, size_t *size) {
         if(col->type == dataframe_str) {
             for(size_t j=0;j<df->nrows;j++) {
                 char *s = col->vals.s[j];
+                if(!s) s = "";
                 n = strlen(s) + 1;
                 total += sizeof n + n;
-                printf("row=%zu total=%zu\n", j, total);
             }
         } else total += sz * df->nrows;
-        printf("col=%zu total=%zu\n", i, total);
     }
-    printf("total2=%zu\n", total);
 
-    uint8_t *p = (uint8_t*)malloc(total);
-    *data = p;
+    dataframe_buf_reserve(buf, total);
+    uint8_t *p = buf->p + buf->n;
+
     memcpy(p, &h, sizeof h); p += sizeof h;
     n = strlen(name) + 1;
     memcpy(p, &n, sizeof(n)); p += sizeof n;
     memcpy(p, name, n); p += n;
+    printf("name=%zu\n", p - buf->p - buf->n);
+
     for(size_t i=0;i<df->ncols;i++) {
         DataframeCol *col = &df->cols[i];
         n = strlen(col->name) + 1;
@@ -246,27 +385,27 @@ dataframe_serialize(Dataframe *df, uint8_t **data, size_t *size) {
         memcpy(p, col->name, n); p += n;
         memcpy(p, &col->type, sizeof col->type); p += sizeof col->type;
     }
-    printf("data=%zu\n", (size_t)(p - *data));
+    printf("header=%zu\n", p - buf->p - buf->n);
+
     for(size_t i=0;i<df->ncols;i++) {
         DataframeCol *col = &df->cols[i];
         size_t sz = dataframe_typesize(col->type);
         if(col->type == dataframe_str) {
             for(size_t j=0;j<df->nrows;j++) {
                 char *s = col->vals.s[j];
+                if(!s) s = "";
                 n = strlen(s) + 1;
                 memcpy(p, &n, sizeof n); p += sizeof n;
                 memcpy(p, s, n); p += n;
-                printf("row=%zu total=%zu\n", j, (size_t)(p - *data));
             }
         } else {
             memcpy(p, col->vals.v, sz * df->nrows);
             p += sz * df->nrows;
         }
-        printf("col=%zu total=%zu\n", i, (size_t)(p - *data));
     }
-    printf("data2=%zu\n", (size_t)(p - *data));
-    assert((ptrdiff_t)(p - *data) == (ptrdiff_t)total);
-    *size = total;
+    printf("old=%zu total=%zu\n", p - buf->p - buf->n, total);
+    assert((ptrdiff_t)(p - buf->p - buf->n) == (ptrdiff_t)total);
+    buf->n += total;
 }
 
 DATAFRAME_API int
@@ -298,15 +437,15 @@ dataframe_deserialize(Dataframe *df, const uint8_t *data, size_t size) {
         memcpy(&col->type, data, sizeof col->type);
         data += sizeof col->type; size -= sizeof col->type;
         col->vals.s = 0;
+        col->item_size = (uint32_t)dataframe_typesize(col->type);
+        col->i = i;
     }
     for(size_t i=0;i<df->ncols;i++) {
         DataframeCol *col = &df->cols[i];
-        size_t sz = dataframe_typesize(col->type);
+        size_t sz = col->item_size;
 
-        size_t x = sz * df->nrows;
-        if(size < x) return -1;
         if(col->type == dataframe_str) {
-            df->cols[i].vals.s = (char**)malloc(sizeof(char*) * df->nrows);
+            df->cols[i].vals.s = (char**)calloc(sizeof(char*), df->nrows);
             for(size_t j=0;j<df->nrows;j++) {
                 if(size < sizeof n) goto error;
                 memcpy(&n, data, sizeof n); data += sizeof n; size -= sizeof n;
@@ -314,7 +453,72 @@ dataframe_deserialize(Dataframe *df, const uint8_t *data, size_t size) {
                 col->vals.s[j] = (char*)data;
                 data += n; size -= n;
             }
-        } else df->cols[i].vals.v = (void*)data; data += x; size -= x;
+        } else {
+            size_t x = sz * df->nrows;
+            if(size < x) return -1;
+            df->cols[i].vals.v = (void*)data;
+            data += x; size -= x;
+        }
+    }
+    return 0;
+error:
+    dataframe_free(df);
+    return -1;
+}
+
+DATAFRAME_API int
+dataframe_deserialize_copy(Dataframe *df, const uint8_t *data, size_t size) {
+    memset(df, 0, sizeof *df);
+
+    DataframeHeader h;
+    if(size < sizeof h) return -1;
+    memcpy(&h, data, sizeof h); data += sizeof h; size -= sizeof h;
+    df->ncols = h.ncols;
+    df->nrows = df->row_capacity = h.nrows;
+    uint32_t n;
+    if(size < sizeof n) return -1;
+    memcpy(&n, data, sizeof n); data += sizeof n; size -= sizeof n;
+    if(size < n) return -1;
+    df->name = malloc(n);
+    memcpy(df->name, data, n);
+    data += n; size -= n;
+
+    for(size_t i=0;i<df->ncols;i++) {
+        DataframeCol *col = &df->cols[i];
+
+        if(size < sizeof n) return -1;
+        memcpy(&n, data, sizeof n); data += sizeof n; size -= sizeof n;
+
+        if(size < n) return -1;
+        col->name = malloc(n);
+        memcpy(col->name, data, n);
+        data += n; size -= n;
+
+        if(size < sizeof col->type) return -1;
+        memcpy(&col->type, data, sizeof col->type);
+        data += sizeof col->type; size -= sizeof col->type;
+        col->item_size = (uint32_t)dataframe_typesize(col->type);
+        col->i = i;
+        col->vals.s = calloc(col->item_size, df->nrows);
+    }
+    for(size_t i=0;i<df->ncols;i++) {
+        DataframeCol *col = &df->cols[i];
+        size_t sz = col->item_size;
+        if(col->type == dataframe_str) {
+            for(size_t j=0;j<df->nrows;j++) {
+                if(size < sizeof n) goto error;
+                memcpy(&n, data, sizeof n); data += sizeof n; size -= sizeof n;
+                if(size < n) goto error;
+                col->vals.s[j] = malloc(n);
+                memcpy(col->vals.s[j], data, n);
+                data += n; size -= n;
+            }
+        } else {
+            size_t x = sz * df->nrows;
+            if(size < x) return -1;
+            memcpy(col->vals.v, data, x);
+            data += x; size -= x;
+        }
     }
     return 0;
 error:
@@ -356,13 +560,13 @@ static double now() {
 int main(int argc, char **argv) {
     Dataframe df;
     dataframe_init(&df, "values");
-    DataframeCol *id = dataframe_addcol(&df, "id", dataframe_i32);
-    DataframeCol *name = dataframe_addcol(&df, "name", dataframe_str);
+    dataframe_addcol(&df, "id", dataframe_i32);
+    dataframe_addcol(&df, "name", dataframe_str);
     dataframe_reserve(&df, 10);
     for(int i=0;i<5;i++) {
         size_t x = dataframe_add(&df);
-        id->vals.i32[x] = i;
-        name->vals.s[x] = dataframe_strdup("hello");
+        dataframe_set(&df, 0, i, &i);
+        dataframe_set(&df, 1, i, "hello");
     }
     uint8_t *ser;
     size_t nser;
@@ -389,7 +593,7 @@ int main(int argc, char **argv) {
                 assert(!strcmp(c->vals.s[j], c2->vals.s[j]));
             }
         } else
-            assert(!memcmp(c->vals.v, c2->vals.v, dataframe_typesize(c2->type) * df.nrows));
+            assert(!memcmp(c->vals.v, c2->vals.v, c2->item_size * df.nrows));
     }
 
     free(ser);
