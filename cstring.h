@@ -12,8 +12,9 @@
 extern "C" {
 #endif
 
+#define CSTRING_SHORT_MAX (sizeof(void*)*4-1)
 typedef struct CStringShort {
-    unsigned char s[sizeof(void*)*4];
+    unsigned char s[CSTRING_SHORT_MAX + 1];
 } CStringShort;
 
 typedef struct CStringLong {
@@ -27,7 +28,7 @@ typedef union CString {
     CStringLong l;
 } CString;
 
-#define CSTRING_SHORT_MAX (sizeof(void*)*4-1)
+
 
 static void
 cstring_init(CString *s) {
@@ -59,7 +60,7 @@ cstring_size(CString *s) {
 
 static char*
 cstring_str(CString *s) {
-    if(cstring_islong(s)) return s->l.s;
+    if(cstring_islong(s)) return s->l.s ? s->l.s : (char*)"";
     return (char*)s->s.s + 1;
 }
 
@@ -77,6 +78,40 @@ cstring_upper(CString *s) {
     for(i=0;i<n;i++) p[i] = toupper(p[i]);
 }
 
+static int
+cstring_casecmp(CString *x, CString *y) {
+    char *xp = cstring_str(x);
+    size_t xn = cstring_size(x);
+    char *yp = cstring_str(y);
+    size_t yn = cstring_size(y);
+    size_t i, mn = xn < yn ? xn : yn;
+    for(i=0;i<mn;i++) {
+        int a = toupper(xp[i]);
+        int b = toupper(yp[i]);
+        int c = a - b;
+        if(c) return c;
+    }
+    if(xn < yn) return -1;
+    if(xn > yn) return 1;
+    return 0;
+}
+
+static int
+cstring_cmp(CString *x, CString *y) {
+    char *xp = cstring_str(x);
+    size_t xn = cstring_size(x);
+    char *yp = cstring_str(y);
+    size_t yn = cstring_size(y);
+    size_t i, mn = xn < yn ? xn : yn;
+    for(i=0;i<mn;i++) {
+        int c = (int)xp[i] - (int)yp[i];
+        if(c) return c;
+    }
+    if(xn < yn) return -1;
+    if(xn > yn) return 1;
+    return 0;
+}
+
 static void
 cstring_clear(CString *s) {
     if(cstring_islong(s)) {
@@ -88,23 +123,18 @@ cstring_clear(CString *s) {
     }
 }
 
-/* return -1 on memory allocation failure */
 static int
-cstring_set(CString *s, const char *str) {
-    size_t n;
+cstring_setn(CString *s, const char *str, size_t n) {
     if(!str) str = "";
-    n = strlen(str) + 1;
+    ++n; /* include null terminator */
     if(n <= CSTRING_SHORT_MAX) {
         if(cstring_islong(s)) {
-            if(s->l.capacity >= n) {
-                memcpy(s->l.s, str, n);
-                s->l.n = (n << 1) | 1;
-                return 0;
-            }
+            if(s->l.capacity >= n) goto addlong;
             cstring_destroy(s);
         }
 
-        memcpy(s->s.s + 1, str, n);
+        memcpy(s->s.s + 1, str, --n);
+        s->s.s[n] = 0;
         s->s.s[0] = n << 1;
         return 0;
     }
@@ -124,10 +154,18 @@ cstring_set(CString *s, const char *str) {
         s->l.s = p;
         s->l.capacity = cap;
     }
-
-    memcpy(s->l.s, str, n);
+addlong:
+    memcpy(s->l.s, str, --n);
+    s->l.s[n] = 0;
     s->l.n = (n << 1) | 1;
     return 0;
+}
+
+/* return -1 on memory allocation failure */
+static int
+cstring_set(CString *s, const char *str) {
+    if(!str) str = "";
+    return cstring_setn(s, str, strlen(str));
 }
 
 
