@@ -64,7 +64,7 @@ typedef struct DataframeItem {
 } DataframeItem;
 
 typedef struct DataframeSort {
-    size_t column;
+    size_t col;
     int reverse;
 } DataframeSort;
 
@@ -73,7 +73,9 @@ DATAFRAME_API const char *dataframe_name(Dataframe*);
 DATAFRAME_API const char *dataframe_colname(Dataframe *, size_t col);
 /* returns index of column */
 DATAFRAME_API size_t dataframe_addcol(Dataframe*, const char *name, DataframeType);
+DATAFRAME_API void dataframe_namecol(Dataframe *df, size_t col, const char *name);
 DATAFRAME_API void dataframe_dropcol(Dataframe*, size_t i);
+DATAFRAME_API void dataframe_dropcolname(Dataframe *, const char *name);
 /* add n new rows. they are zero initialized. returns row index for use in setting row values */
 DATAFRAME_API size_t dataframe_addrow(Dataframe *df, size_t n);
 /* reserve n total rows. dataframe_addrow() still needs to be called before accessing the rows */
@@ -92,9 +94,11 @@ DATAFRAME_API void* dataframe_getcol(Dataframe *df, size_t column);
 DATAFRAME_API void dataframe_zerocol(Dataframe *df, size_t column);
 DATAFRAME_API void dataframe_zero(Dataframe *df, size_t column, size_t row);
 DATAFRAME_API void dataframe_get(Dataframe *df, size_t column, size_t row, void *dst, size_t ndest);
+DATAFRAME_API void dataframe_getname(Dataframe *df, const char* column, size_t row, void *dst, size_t ndest);
 DATAFRAME_API size_t dataframe_typesize(DataframeType);
 DATAFRAME_API void dataframe_print(Dataframe *df);
 DATAFRAME_API void dataframe_sort(Dataframe *df, DataframeSort *, size_t nsort);
+DATAFRAME_API void dataframe_merge(Dataframe *dst, size_t dstcol, Dataframe *src, size_t srccol);
 /* destroy dataframe */
 DATAFRAME_API void dataframe_free(Dataframe*);
 
@@ -102,7 +106,7 @@ DATAFRAME_API void dataframe_free(Dataframe*);
 DATAFRAME_API DataframeItem dataframe_item(Dataframe*, size_t col, size_t row);
 DATAFRAME_API size_t dataframe_itemsize(DataframeItem*);
 DATAFRAME_API void* dataframe_itemptr(DataframeItem*);
-DATAFRAME_API int dataframe_itemequal(DataframeItem *x, DataframeItem *y);
+DATAFRAME_API int dataframe_itemcmp(DataframeItem *x, DataframeItem *y);
 
 
 #ifdef __cplusplus
@@ -213,6 +217,13 @@ dataframe_addcol(Dataframe *df, const char *name, DataframeType type) {
     return col->i = df->ncols++;
 }
 
+DATAFRAME_API void
+dataframe_namecol(Dataframe *df, size_t col, const char *name) {
+    if(col >= df->ncols) return;
+    free(df->cols[col].name);
+    df->cols[col].name = dataframe_strdup(name);
+}
+
 DATAFRAME_API void*
 dataframe_getcol(Dataframe *df, size_t column) {
     if(column >= df->ncols) return 0;
@@ -228,6 +239,16 @@ dataframe_get(Dataframe *df, size_t column, size_t row, void *dst, size_t ndest)
     DataframeCol *col = &df->cols[column];
     size_t mn = ndest < col->item_size ? ndest : col->item_size;
     memcpy(dst, col->vals.u8 + col->item_size * row, mn);
+}
+
+DATAFRAME_API void
+dataframe_getname(Dataframe *df, const char* column, size_t row, void *dst, size_t ndest) {
+    ptrdiff_t col = dataframe_col(df, column);
+    if(col < 0) {
+        memset(dst, 0, ndest);
+        return;
+    }
+    dataframe_get(df, col, row, dst, ndest);
 }
 
 DATAFRAME_API size_t
@@ -255,6 +276,11 @@ dataframe_dropcol(Dataframe *df, size_t i) {
     --df->ncols;
 }
 
+DATAFRAME_API void
+dataframe_dropcolname(Dataframe *df, const char *name) {
+    ptrdiff_t col = dataframe_col(df, name);
+    if(col >= 0) dataframe_dropcol(df, (size_t)col);
+}
 
 DATAFRAME_API void
 dataframe_zero(Dataframe *df, size_t column, size_t row) {
@@ -285,7 +311,6 @@ dataframe_column(Dataframe *df, size_t idx) {
     if(idx >= df->ncols) return 0;
     return &df->cols[idx];
 }
-
 
 DATAFRAME_API void
 dataframe_print(Dataframe *df) {
@@ -577,11 +602,12 @@ static int dataframe_cmp_str(const void *x, const void *y) {
 }
 
 DATAFRAME_API int
-dataframe_itemequal(DataframeItem *x, DataframeItem *y) {
-    if(x->type != y->type) return -1;
+dataframe_itemcmp(DataframeItem *x, DataframeItem *y) {
+    int c = x->type - y->type;
+    if(c) return c;
     if(x->type == dataframe_str)
-        return !dataframe_cmp_str(&x->v->s, &y->v->s);
-    return !memcmp(x->v, y->v, x->item_size);
+        return dataframe_cmp_str(&x->v->s, &y->v->s);
+    return memcmp(x->v, y->v, x->item_size);
 }
 
 DATAFRAME_API void
@@ -595,7 +621,7 @@ dataframe_sort(Dataframe *df, DataframeSort *sort, size_t nsort) {
        everything correctly */
     for(int i=(int)nsort-1;i>=0;i--) {
         int (*cmp)(const void*, const void*);
-        DataframeCol *col = &df->cols[sort[i].column];
+        DataframeCol *col = &df->cols[sort[i].col];
         switch(col->type) {
         case dataframe_str: cmp = dataframe_cmp_str; break;
         case dataframe_i8: cmp = dataframe_cmp_i8; break;
@@ -636,6 +662,49 @@ dataframe_sort(Dataframe *df, DataframeSort *sort, size_t nsort) {
     }
 
     free(indexes);
+}
+
+DATAFRAME_API void
+dataframe_merge(Dataframe *dst, size_t dstcol, Dataframe *src, size_t srccol) {
+    DataframeSort sort;
+    sort.col = dstcol;
+    sort.reverse = 0;
+    dataframe_sort(dst, &sort, 1);
+    sort.col = srccol;
+    dataframe_sort(src, &sort, 1);
+
+    size_t colstart = dst->ncols;
+    for(size_t i=0;i<src->ncols;i++) {
+        if(i == srccol) continue;
+        DataframeCol *col = &src->cols[i];
+        dataframe_addcol(dst, col->name, col->type);
+    }
+
+    size_t end = dst->nrows;
+    size_t srci = 0, dsti = 0;
+    while(dsti < end && srci < src->nrows) {
+        DataframeItem dstitem = dataframe_item(dst, dstcol, dsti);
+        DataframeItem srcitem = dataframe_item(src, srccol, srci);
+        int c = dataframe_itemcmp(&dstitem, &srcitem);
+        if(c < 0) { dsti++; continue; }
+        if(c > 0) { srci++; continue; }
+
+        /* copy all src rows matching dst row but stay on src row in case
+           next dst row has the same key we may need to copy these src rows
+           again */
+        for(size_t j=srci;j < src->nrows;j++) {
+            DataframeItem srcitem = dataframe_item(src, srccol, j);
+            if(dataframe_itemcmp(&dstitem, &srcitem)) break;
+            for(size_t i=0,col=colstart;i<src->ncols;i++,col++) {
+                if(i == srccol) continue;
+                if(src->cols[i].type == dataframe_str)
+                    dataframe_set(dst, col, dsti, srcitem.v->s, srcitem.v->s ? strlen(srcitem.v->s) : 0);
+                else
+                    dataframe_set(dst, col, dsti, srcitem.v, srcitem.item_size);
+            }
+        }
+        ++dsti;
+    }
 }
 
 #endif
