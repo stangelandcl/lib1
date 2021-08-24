@@ -69,6 +69,8 @@ typedef struct DataframeSort {
 } DataframeSort;
 
 DATAFRAME_API Dataframe *dataframe_new(const char *name);
+DATAFRAME_API const char *dataframe_name(Dataframe*);
+DATAFRAME_API const char *dataframe_colname(Dataframe *, size_t col);
 /* returns index of column */
 DATAFRAME_API size_t dataframe_addcol(Dataframe*, const char *name, DataframeType);
 DATAFRAME_API void dataframe_dropcol(Dataframe*, size_t i);
@@ -154,6 +156,17 @@ typedef struct DataframeHeader {
     uint32_t ncols;
 } DataframeHeader;
 
+DATAFRAME_API const char *
+dataframe_name(Dataframe* df) {
+	return df->name ? df->name : "";
+}
+
+DATAFRAME_API const char *
+dataframe_colname(Dataframe *df, size_t col) {
+	if(col >= df->ncols) return "";
+	return df->cols[col].name ? df->cols[col].name : "";
+}
+
 static char*
 dataframe_strdup(const char *str) {
     if(!str) str = "";
@@ -171,12 +184,12 @@ dataframe_new(const char *name) {
 }
 
 DATAFRAME_API size_t
-dataframe_nrows(Dataframe *df) { 
+dataframe_nrows(Dataframe *df) {
     return df->nrows;
 }
 
 DATAFRAME_API size_t
-dataframe_ncols(Dataframe *df) { 
+dataframe_ncols(Dataframe *df) {
     return df->ncols;
 }
 
@@ -199,13 +212,13 @@ dataframe_addcol(Dataframe *df, const char *name, DataframeType type) {
     return col->i = df->ncols++;
 }
 
-DATAFRAME_API void* 
+DATAFRAME_API void*
 dataframe_getcol(Dataframe *df, size_t column) {
     if(column >= df->ncols) return 0;
     return df->cols[column].vals.v;
 }
 
-DATAFRAME_API void 
+DATAFRAME_API void
 dataframe_get(Dataframe *df, size_t column, size_t row, void *dst, size_t ndest) {
     if(column >= df->ncols || row >= df->nrows) {
         memset(dst, 0, ndest);
@@ -216,23 +229,23 @@ dataframe_get(Dataframe *df, size_t column, size_t row, void *dst, size_t ndest)
     memcpy(dst, col->vals.u8 + col->item_size * row, mn);
 }
 
-DATAFRAME_API size_t 
+DATAFRAME_API size_t
 dataframe_coltypesize(Dataframe *df, size_t column) {
     if(column >= df->ncols) return 0;
     return df->cols[column].item_size;
 }
-DATAFRAME_API DataframeType 
+DATAFRAME_API DataframeType
 dataframe_type(Dataframe *df, size_t column) {
     if(column >= df->ncols) return 0;
     return df->cols[column].type;
 }
 
-DATAFRAME_API void 
+DATAFRAME_API void
 dataframe_dropcol(Dataframe *df, size_t i) {
     if(i >= df->ncols) return;
     DataframeCol *col = &df->cols[i];
     free(col->name);
-    if(col->type == dataframe_str) 
+    if(col->type == dataframe_str)
         for(size_t i = 0;i<df->nrows;i++)
             free(col->vals.s[i]);
     free(col->vals.v);
@@ -318,7 +331,7 @@ dataframe_item(Dataframe *df, size_t column, size_t row) {
     if(column >= df->ncols || row >= df->nrows) {
         memset(&v, 0, sizeof v);
         return v;
-    } 
+    }
     DataframeCol *col = &df->cols[column];
     v.v = (DataframeVal*)(col->vals.u8 + col->item_size * row);
     v.type = col->type;
@@ -352,7 +365,7 @@ dataframe_set(Dataframe *df, size_t coli, size_t row, const void *data, size_t n
         col->vals.s[row][n] = 0;
     } else {
         uint8_t *p = col->vals.u8 + col->item_size * row;
-        /* less or equal so we can pass in bigger numbers and use just the low 
+        /* less or equal so we can pass in bigger numbers and use just the low
             bytes on little endian */
         if(col->item_size <= n) memcpy(p, data, col->item_size);
         else memset(p, 0, col->item_size);
