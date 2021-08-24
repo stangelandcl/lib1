@@ -1,5 +1,5 @@
 OPT=-Wall -Werror -Wno-unused-function -O0 -ggdb3
-all: base64 json jwt md5 noise postgres postgres_win rsa sha
+all: base64 cstring dataframe json jwt md5 noise postgres postgres_win rsa sha
 WINCC=x86_64-w64-mingw32-gcc
 
 cloc:
@@ -8,6 +8,10 @@ cloc:
 base64:
 	$(CXX) $(OPT) -x c++ -DBASE64_EXAMPLE base64.h && ./a.out
 	$(CC) $(OPT) -x c -DBASE64_EXAMPLE base64.h && ./a.out
+
+cstring:
+	$(CXX) $(OPT) -x c++ -DCSTRING_EXAMPLE cstring.h && ./a.out
+	$(CC) $(OPT) -x c -DCSTRING_EXAMPLE cstring.h && ./a.out
 
 dataframe:
 	$(CXX) $(OPT) -x c++ -DDATAFRAME_EXAMPLE dataframe.h && ./a.out
