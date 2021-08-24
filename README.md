@@ -4,7 +4,7 @@ Public domain single file C libraries in the vein of https://github.com/nothings
 Check the bottom of each file for an example and license (public domain)
 
 - [base64.h](base64.h) - base64 encode/decode. decodes base64url too
-- [dataframe.h](dataframe.h) - tiny dataframe library with serialization
+- [dataframe.h](dataframe.h) - dataframe library
 - [hash.h](hash.h) - simple grow-only open addressing hash table
 - [hash2.h](hash2.h) - simple non-templated grow-only open addressing hash table
 - [json.h](json.h) - tiny, iterative zero memory overhead JSON parser.
