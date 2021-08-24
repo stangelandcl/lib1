@@ -697,10 +697,7 @@ dataframe_merge(Dataframe *dst, size_t dstcol, Dataframe *src, size_t srccol) {
             if(dataframe_itemcmp(&dstitem, &srcitem)) break;
             for(size_t i=0,col=colstart;i<src->ncols;i++,col++) {
                 if(i == srccol) continue;
-                if(src->cols[i].type == dataframe_str)
-                    dataframe_set(dst, col, dsti, srcitem.v->s, srcitem.v->s ? strlen(srcitem.v->s) : 0);
-                else
-                    dataframe_set(dst, col, dsti, srcitem.v, srcitem.item_size);
+                dataframe_set(dst, col, dsti, dataframe_itemptr(&srcitem), dataframe_itemsize(&srcitem));
             }
         }
         ++dsti;
