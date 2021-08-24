@@ -117,6 +117,7 @@ DATAFRAME_API int dataframe_itemequal(DataframeItem *x, DataframeItem *y);
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
 typedef union DataframeVals {
     int8_t *i8;
@@ -305,7 +306,14 @@ dataframe_print(Dataframe *df) {
             case dataframe_i8: printf("%d", c->vals.i8[j]); break;
             case dataframe_i16: printf("%d", c->vals.i16[j]); break;
             case dataframe_i32: printf("%d", c->vals.i32[j]); break;
-            case dataframe_time:
+            case dataframe_time: {
+                char buf[21];
+                time_t time = c->vals.time[j] / 1000000000;
+                struct tm *tm = gmtime(&time);
+                strftime(buf, sizeof buf, "%Y-%m-%d %H:%M:%S", tm);
+                printf("%s", buf);
+                break;
+            }
             case dataframe_i64: printf("%ld", c->vals.i64[j]); break;
             case dataframe_u8: printf("%u", c->vals.u8[j]); break;
             case dataframe_u16: printf("%u", c->vals.u16[j]); break;
