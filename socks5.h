@@ -148,10 +148,12 @@ socks5_connect(
 	const char *password) {
 
 	struct addrinfo hints = {0}, *res, *addr;
-	int fd, rc, n_buf;
+	int fd, rc, n_buf, port;
 	unsigned char buf[513];
 	size_t n;
 	char ports[6];
+	const char *host;
+
 
 	socks5_init();
 
@@ -159,8 +161,16 @@ socks5_connect(
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
 
-	snprintf(ports, sizeof ports, "%d", socks5_port);
-	rc = getaddrinfo(socks5_host, ports, &hints, &res);
+	if(socks5_host) {
+		host = socks5_host;
+		port = socks5_port;
+	} else {
+		host = real_host;
+		port = real_port;
+	}
+
+	snprintf(ports, sizeof ports, "%d", port);
+	rc = getaddrinfo(host, ports, &hints, &res);
 	if(rc) return -1;
 
 	for(addr=res;addr;addr=addr->ai_next) {
@@ -182,94 +192,95 @@ socks5_connect(
 		return -1;
 	}
 
-	n_buf = 0;
-	buf[n_buf++] = 5; /* version SOCKS *5* */
-	if(user || password) {
-		buf[n_buf++] = 2; /* nmethods */
-		buf[n_buf++] = 0; /* no authentication */
-		buf[n_buf++] = 2; /* user/password auth */
-	} else {
-		buf[n_buf++] = 1; /* nmethods */
-		buf[n_buf++] = 0; /* no authentication */
-	}
-
-	if(socks5_send(fd, buf, n_buf) != n_buf) goto error;
-	if(socks5_recv(fd, buf, 2) != 2) goto error;
-
-	if(buf[0] != 5) goto error;
-	switch(buf[1]) {
-	case 0: /* no auth. done */ break;
-	case 1: /* gssapi */ goto error;
-	case 2: /* user-pass */
+	if(socks5_host) {
 		n_buf = 0;
-		buf[n_buf++] = 1; /* version of auth protocol */
-		user = user ? user : "";
-		n = strlen(user);
-		if(n > 255) goto error;
-		buf[n_buf++] = (unsigned char)n;
-		memcpy(buf + n_buf, user, n);
-		n_buf += n;
-		password = password ? password : "";
-		n = strlen(password);
-		if(n > 255) goto error;
-		buf[n_buf++] = (unsigned char)n;
-		memcpy(buf + n_buf, password, n);
-		n_buf += n;
+		buf[n_buf++] = 5; /* version SOCKS *5* */
+		if(user || password) {
+			buf[n_buf++] = 2; /* nmethods */
+			buf[n_buf++] = 0; /* no authentication */
+			buf[n_buf++] = 2; /* user/password auth */
+		} else {
+			buf[n_buf++] = 1; /* nmethods */
+			buf[n_buf++] = 0; /* no authentication */
+		}
 
 		if(socks5_send(fd, buf, n_buf) != n_buf) goto error;
 		if(socks5_recv(fd, buf, 2) != 2) goto error;
-		if(buf[0] != 1) goto error; /* version number of auth protocol */
-		if(buf[1] != 1) goto error; /* status = success */
-		break;
-	default: goto error;
-	}
-	/* authorized */
-	n_buf = 0;
-	buf[n_buf++] = 5; /* version of request protocol */
-	buf[n_buf++] = 1; /* 1 = connect. 2 = bind, 3 = udp */
-	buf[n_buf++] = 0; /* reserved */
-	buf[n_buf++] = 3; /* 1 - IP4 addr (4 bytes), 3 - proxy resolves domain, 4 - IP6 addr (16) bytes */
-	/* domain name format is 1 byte length, 1-255 bytes domain name.
-	 * IPv4 format is just 4 bytes no length prefix.
-	 * IPv6 format is just 16 bytes no length prefix */
-	n = strlen(real_host);
-	if(n > 255) goto error;
-	buf[n_buf++] = (unsigned char)n;
-	memcpy(buf + n_buf, real_host, n);
-	n_buf += n;
-	buf[n_buf++] = (unsigned char)(real_port >> 8);
-	buf[n_buf++] = (unsigned char)real_port;
 
-	if(socks5_send(fd, buf, n_buf) != n_buf) goto error;
-	if(socks5_recv(fd, buf, 4) != 4) goto error;
-	if(buf[0] != 5) goto error; /* version */
-	if(buf[1] != 0) goto error; /* status code */
-	/* buf[2] is reserved/meaningless */
+		if(buf[0] != 5) goto error;
+		switch(buf[1]) {
+		case 0: /* no auth. done */ break;
+		case 1: /* gssapi */ goto error;
+		case 2: /* user-pass */
+			n_buf = 0;
+			buf[n_buf++] = 1; /* version of auth protocol */
+			user = user ? user : "";
+			n = strlen(user);
+			if(n > 255) goto error;
+			buf[n_buf++] = (unsigned char)n;
+			memcpy(buf + n_buf, user, n);
+			n_buf += n;
+			password = password ? password : "";
+			n = strlen(password);
+			if(n > 255) goto error;
+			buf[n_buf++] = (unsigned char)n;
+			memcpy(buf + n_buf, password, n);
+			n_buf += n;
 
-	/* next comes address type, address and port.
-	 * These exist but are usually blank from the server */
-	switch(buf[3]) {
-	case 1: /* IP v4 */
+			if(socks5_send(fd, buf, n_buf) != n_buf) goto error;
+			if(socks5_recv(fd, buf, 2) != 2) goto error;
+			if(buf[0] != 1) goto error; /* version number of auth protocol */
+			if(buf[1] != 1) goto error; /* status = success */
+			break;
+		default: goto error;
+		}
+		/* authorized */
+		n_buf = 0;
+		buf[n_buf++] = 5; /* version of request protocol */
+		buf[n_buf++] = 1; /* 1 = connect. 2 = bind, 3 = udp */
+		buf[n_buf++] = 0; /* reserved */
+		buf[n_buf++] = 3; /* 1 - IP4 addr (4 bytes), 3 - proxy resolves domain, 4 - IP6 addr (16) bytes */
+		/* domain name format is 1 byte length, 1-255 bytes domain name.
+		* IPv4 format is just 4 bytes no length prefix.
+		* IPv6 format is just 16 bytes no length prefix */
+		n = strlen(real_host);
+		if(n > 255) goto error;
+		buf[n_buf++] = (unsigned char)n;
+		memcpy(buf + n_buf, real_host, n);
+		n_buf += n;
+		buf[n_buf++] = (unsigned char)(real_port >> 8);
+		buf[n_buf++] = (unsigned char)real_port;
+
+		if(socks5_send(fd, buf, n_buf) != n_buf) goto error;
 		if(socks5_recv(fd, buf, 4) != 4) goto error;
-		/* buf contains IP v4 address */
-		break;
-	case 3: /* DNS name */
-		if(socks5_recv(fd, buf, 1) != 1) goto error; /* length */
-		n = buf[0];
-		if(socks5_recv(fd, buf, n) != (ptrdiff_t)n) goto error;
-		/* buf contains DNS name */
-		break;
-	case 4: /* IP v6 */
-		if(socks5_recv(fd, buf, 16) != 16) goto error;
-		/* buf contains ip v6 addr */
-		break;
-	default: goto error; /* invalid type */
+		if(buf[0] != 5) goto error; /* version */
+		if(buf[1] != 0) goto error; /* status code */
+		/* buf[2] is reserved/meaningless */
+
+		/* next comes address type, address and port.
+		* These exist but are usually blank from the server */
+		switch(buf[3]) {
+		case 1: /* IP v4 */
+			if(socks5_recv(fd, buf, 4) != 4) goto error;
+			/* buf contains IP v4 address */
+			break;
+		case 3: /* DNS name */
+			if(socks5_recv(fd, buf, 1) != 1) goto error; /* length */
+			n = buf[0];
+			if(socks5_recv(fd, buf, n) != (ptrdiff_t)n) goto error;
+			/* buf contains DNS name */
+			break;
+		case 4: /* IP v6 */
+			if(socks5_recv(fd, buf, 16) != 16) goto error;
+			/* buf contains ip v6 addr */
+			break;
+		default: goto error; /* invalid type */
+		}
+
+		/* recv port */
+		if(socks5_recv(fd, buf, 2) != 2) goto error;
+		/* buf contains big endian port of remote server */
 	}
-
-	/* recv port */
-	if(socks5_recv(fd, buf, 2) != 2) goto error;
-	/* buf contains big endian port of remote server */
-
 	socks5_timeout(fd, 60*60);
 	return fd;
 error:
