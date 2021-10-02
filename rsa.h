@@ -363,7 +363,7 @@ rsa_sign1(uint8_t *dst, uint8_t *hash, int nhash, int sha, RsaInt *e, RsaInt *m)
 	/* format is 0x00 0x01 0xFF 0xFF 0xFF ... 0x00 (DigestInfo) (hash) */
 	memset(tmp, 0xFF, n);
 	tmp[0] = 0;
-	tmp[1] = 1;
+	tmp[1] = 1; /* private key operations */
 	end = tmp + n - nhash;
 	memcpy(end, hash, nhash);
 	switch(sha) {
@@ -389,6 +389,46 @@ rsa_sign(uint8_t *dst, uint8_t *hash, int nhash, int sha, const uint8_t *e, int 
 	rsa_int_init(&im, m, me);
 
 	return rsa_sign1(dst, hash, nhash, sha, &ie, &im);
+}
+
+#ifdef _WIN32
+/* link with -ladvapi32.
+   docs say may be deprecated but used by rand_s, CRT, firefox, chrome, zig, etc */
+char __stdcall SystemFunction036(void* buf, unsigned); /* RtlGenRandom */
+static int getrandom(void* buf, int len, int x)
+{
+        return SystemFunction036(buf, len) ? len : 0;
+}
+#else
+#include <sys/random.h>
+#endif
+
+
+/* PKCS 1.5 RSA encryption */
+RSA_API int
+rsa_encrypt(uint8_t *dst, int ndst, const void *text, int ntext, const uint8_t *e, int ne, const uint8_t *m, int me) {
+	RsaInt ie, im;
+	rsa_int_init(&ie, e, ne);
+	rsa_int_init(&im, m, me);
+
+	RsaInt msg, sig;
+
+	uint8_t tmp[512];
+	tmp[0] = 0;
+	tmp[1] = 2; /* public key operations */
+	int i=2;
+	int n = me - 3 - ntext;
+	getrandom(tmp + i, n, 0);
+	for(;n--;i++) if(!tmp[i]) tmp[i] = 1; /* should be non-zeros */
+	tmp[i++] = 0;
+	memcpy(tmp + i, text, ntext);
+	i += ntext;
+
+	rsa_int_init(&msg, tmp, i);
+	/* printf("premsg2="); tls_int_print(&msg); */
+	rsa_int_pow(&sig, &msg, &ie, &im);
+	/* printf("sig="); tls_int_print(&sig); */
+	return rsa_int2bytes(&sig, dst, ndst);
 }
 
 #if 0

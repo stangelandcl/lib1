@@ -17,6 +17,10 @@ dataframe:
 	$(CXX) $(OPT) -x c++ -DDATAFRAME_EXAMPLE dataframe.h && ./a.out
 	$(CC) $(OPT) -x c -DDATAFRAME_EXAMPLE dataframe.h && ./a.out
 
+file:
+	$(CXX) $(OPT) -x c++ -DFILE_EXAMPLE file.h && ./a.out
+	$(CC) $(OPT) -x c -DFILE_EXAMPLE file.h && ./a.out
+
 hash:
 	$(CXX) $(OPT) -x c++ -DHASH_EXAMPLE hash.h && ./a.out
 	$(CC) $(OPT) -x c -DHASH_EXAMPLE hash.h && ./a.out
