@@ -563,7 +563,7 @@ static int pg_recvmsgs(PgConn *pg, char until, PgMsg *msg) {
 	PgBuf buf = {0};
 	int rc;
 	size_t start;
-	PgHeader h;
+	PgHeader h = {0};
 
 	memset(msg, 0, sizeof *msg);
 
@@ -575,7 +575,7 @@ static int pg_recvmsgs(PgConn *pg, char until, PgMsg *msg) {
 			return rc;
 		}
 
-		h = pg_header(buf.p + start, buf.n);
+		h = pg_header(buf.p + start, buf.n - start);
 		if(!h.type) return PG_FORMAT;
 		if(h.type == 'E') pg->state = pg_state_error;
 		/* printf("msg (%c) size (%d)\n", h.type, h.n); */
@@ -584,7 +584,27 @@ static int pg_recvmsgs(PgConn *pg, char until, PgMsg *msg) {
 	msg->p = buf.p;
 	msg->n = buf.n;
 
-	return 0;
+	if(h.type == 'E') {
+		const char *text;
+		char *err = 0;
+		msg->p = (char*)h.p;
+		msg->n = h.n;
+		while(msg->n && *msg->p) {
+			char *s;
+			if(pg_slice(msg, 1, &s)) break;
+			if(*s) {
+				text = pg_readstr(msg);
+				err = pg_append(err, text);
+				err = pg_append(err, " ");
+			} else
+				break;
+		}
+		snprintf(pg->error, sizeof pg->error, "%s", err ? err : "Postgres error");
+		free(err);
+		free(buf.p);
+		memset(msg, 0, sizeof *msg);
+	}
+	return h.type == 'E' ? -1 : 0;
 }
 
 /*******************************************
@@ -980,7 +1000,7 @@ static int pg_parser_make_error(PgParser *p, PgHeader *h) {
 
 	return 1;
 error:
-	p->state = 'F';
+	p->state = pg_state_error;
 	free(err);
 	return 1;
 }

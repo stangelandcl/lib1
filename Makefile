@@ -63,6 +63,10 @@ rsa:
 	$(CXX) $(OPT) -x c++ -DRSA_EXAMPLE rsa.h && ./a.out
 	$(CC) $(OPT) -x c -DRSA_EXAMPLE rsa.h && ./a.out
 
+sb:
+	$(CXX) $(OPT) -x c++ -DSB_EXAMPLE sb.h && ./a.out
+	$(CC) $(OPT) -x c -DSB_EXAMPLE sb.h && ./a.out
+
 sha:
 	$(CXX) $(OPT) -x c++ -DSHA_EXAMPLE sha.h && ./a.out
 	$(CC) $(OPT) -x c -DSHA_EXAMPLE sha.h && ./a.out
