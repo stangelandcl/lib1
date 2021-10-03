@@ -80,6 +80,10 @@ tds:
 	$(CXX) $(OPT) -x c++ -DTDS_EXAMPLE tds.h -lm && ./a.out
 	$(CC) $(OPT) -x c -DTDS_EXAMPLE tds.h -lm && ./a.out
 
+threadpool:
+	$(CXX) $(OPT) -x c++ -DTHREADPOOL_EXAMPLE threadpool.h -pthread && ./a.out
+	$(CC) $(OPT) -x c -DTHREADPOOL_EXAMPLE threadpool.h -pthread && ./a.out
+
 url:
 	$(CXX) $(OPT) -x c++ -DURL_EXAMPLE url.h && ./a.out
 	$(CC) $(OPT) -x c -DURL_EXAMPLE url.h && ./a.out
