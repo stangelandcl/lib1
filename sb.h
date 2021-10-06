@@ -26,6 +26,7 @@ typedef struct SB {
 SB_API void sb_init(SB *s);
 SB_API int sb_reserve(SB *s, size_t n);
 SB_API void sb_addn(SB *s, const char *text, size_t n);
+SB_API void sb_adds(SB *s, const char *text);
 SB_API void sb_add(SB *s, const char *format, ...);
 SB_API void sb_clear(SB *s);
 SB_API void sb_free(SB *s);
@@ -71,6 +72,11 @@ sb_addn(SB *s, const char *text, size_t n) {
 	memcpy(s->str + s->n, text, n);
 	s->n += n;
 	s->str[s->n] = 0;
+}
+
+SB_API void
+sb_adds(SB *s, const char *text) {
+	if(text) sb_addn(s, text, strlen(text));
 }
 
 SB_API void

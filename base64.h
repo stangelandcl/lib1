@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: Unlicense */
 #ifndef BASE64_H
 #define BASE64_H
 
@@ -5,7 +6,6 @@
  * #define BASE64_IMPLEMENTATION in one file before including or
  * #define BASE64_STATIC before each include
  * example at bottom of file
- * public domain license at end of file
  */
 
 #if defined(BASE64_STATIC) || defined(BASE64_EXAMPLE)
@@ -39,7 +39,8 @@ BASE64_API int base64_decode(void* dst, int ndst, const char *src, int nsrc);
 BASE64_API int base64_encode_len(int n) { return (n * 4 + 2) / 3; }
 BASE64_API int base64_decode_len(int n) { return n * 3 / 4; }
 
-BASE64_API int base64_encode(char *dst, const int ndst, const void *src, int nsrc) {
+BASE64_API int
+base64_encode(char *dst, const int ndst, const void *src, int nsrc) {
 	static const char d[] =
 	    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -82,7 +83,8 @@ BASE64_API int base64_encode(char *dst, const int ndst, const void *src, int nsr
 }
 
 /* returns decoded byte size if >=0 else error */
-BASE64_API int base64_decode(void* dst, int ndst, const char *src, int nsrc) {
+BASE64_API int
+base64_decode(void* dst, int ndst, const char *src, int nsrc) {
 	/* reverses both base64 and base64url */
 	static const uint8_t r[] = {
 		255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255, /* 0-15 */
@@ -161,8 +163,6 @@ int main(int argc, char **argv) {
 	return 0;
 }
 #endif
-
-
 /*
 Public Domain (www.unlicense.org)
 This is free and unencumbered software released into the public domain.
