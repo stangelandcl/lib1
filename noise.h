@@ -110,6 +110,7 @@ NOISE_API void noise_init(NoiseHandshake * hs, const uint8_t psk[NOISE_PSKLEN]);
 char __stdcall SystemFunction036(void* buf, unsigned); /* RtlGenRandom */
 static int getrandom(void* buf, int len, int x)
 {
+	(void)x;
 	return SystemFunction036(buf, len) ? len : 0;
 }
 #else
@@ -1248,7 +1249,8 @@ static void noise_x25519_car25519(noise_x25519_gf o) {
     o[i] += (1LL << 16);
     c = o[i] >> 16;
     o[(i + 1) * (i < 15)] += c - 1 + 37 * (c - 1) * (i == 15);
-    o[i] -= c << 16;
+	/* patched to remove left shift of negative number undefined error */
+    o[i] -= (int64_t)((uint64_t)c << 16);
   }
 }
 

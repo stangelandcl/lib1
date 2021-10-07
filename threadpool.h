@@ -16,8 +16,9 @@ extern "C" {
 
 typedef void (*threadpool_cb)(void *ctx);
 
-THREADPOOL_API void
-threadpool_run(threadpool_cb, void *ctx);
+THREADPOOL_API void threadpool_run(threadpool_cb, void *ctx);
+/* safe to call multiple times */
+THREADPOOL_API void threadpool_start();
 
 #ifdef __cplusplus
 }
@@ -45,6 +46,7 @@ static int threadpool_callback_count;
 static sem_t threadpool_callback_sem;
 static pthread_cond_t threadpool_callback_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t threadpool_callback_lock = PTHREAD_MUTEX_INITIALIZER;
+static int threadpool_started;
 
 static int
 threadpool_dequeue(ThreadpoolCallback *func) {
@@ -91,15 +93,21 @@ threadpool_run(threadpool_cb cb, void *ctx) {
         pthread_mutex_unlock(&threadpool_callback_lock);
 }
 
-static void
+THREADPOOL_API void
 threadpool_start() {
-        sem_init(&threadpool_callback_sem, 0, THREADPOOL_NCALLBACKS);
-        int cpus = sysconf(_SC_NPROCESSORS_ONLN);
-        if(cpus < 1) cpus = 1;
-        while(cpus--) {
-                pthread_t t;
-                pthread_create(&t, 0, threadpool_thread_run, 0);
+        if(threadpool_started) return;
+        pthread_mutex_lock(&threadpool_callback_lock);
+        if(!threadpool_started) {
+            sem_init(&threadpool_callback_sem, 0, THREADPOOL_NCALLBACKS);
+            int cpus = sysconf(_SC_NPROCESSORS_ONLN);
+            if(cpus < 1) cpus = 1;
+            while(cpus--) {
+                    pthread_t t;
+                    pthread_create(&t, 0, threadpool_thread_run, 0);
+            }
+            threadpool_started = 1;
         }
+        pthread_mutex_unlock(&threadpool_callback_lock);
 }
 #endif
 #ifdef THREADPOOL_EXAMPLE
@@ -117,3 +125,22 @@ int main(int argc, char **argv) {
     return 0;
 }
 #endif
+/* Public Domain (www.unlicense.org)
+This is free and unencumbered software released into the public domain.
+Anyone is free to copy, modify, publish, use, compile, sell, or distribute this
+software, either in source code form or as a compiled binary, for any purpose,
+commercial or non-commercial, and by any means.
+In jurisdictions that recognize copyright laws, the author or authors of this
+software dedicate any and all copyright interest in the software to the public
+domain. We make this dedication for the benefit of the public at large and to
+the detriment of our heirs and successors. We intend this dedication to be an
+overt act of relinquishment in perpetuity of all present and future rights to
+this software under copyright law.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+

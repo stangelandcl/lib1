@@ -15,7 +15,7 @@
    call json_bool() to decode bools
    check JsonTok->type == JSON_NULL for nulls.
 
-   #define JSON_IMPLEMENTATION in one .C file before including json.h.
+   #define JSON_IMPLEMENTATION in one C file before including json.h.
    Use json.h in other files normally.
    Alternatively define JSON_STATIC before each use of json.h for
    static definitions
@@ -136,7 +136,7 @@ json_white(Json *p) {
 }
 
 static int
-json_unicode(char **pp, char *e) {
+json_unicode(char **pp) {
 	char *p = *pp;
 	int i, ch = 0;
 	for(i=4;i!=0;i--,p++) {
@@ -232,12 +232,12 @@ json_decode(char **pp, char **dp, char *e) {
 	case 'f': *d = 'f'; break;
 	case 'u':
 		if(e - p < 4) return 0;;
-		if(!(ch = json_unicode(&p, e))) return 0;
+		if(!(ch = json_unicode(&p))) return 0;
 		if(ch >= 0xD800 && ch <= 0xDBFF) {
 			if(e - p < 6) return 0;
 			if(*p++ != '\\' || *p++ != 'u') return 0;
 			w1 = ch - 0xD800;
-			if(!(ch = json_unicode(&p, e))) return 0;
+			if(!(ch = json_unicode(&p))) return 0;
 			if(ch < 0xDC00 || ch > 0xDFFF) return 0;
 			w2 = ch - 0xDC00;
 			ch = 0x10000 + (w1 << 10) + w2;
