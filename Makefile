@@ -93,3 +93,7 @@ url:
 	$(CC) $(OPT) -x c -DURL_EXAMPLE url.h && ./a.out
 	$(WINCC) $(OPT) -x c -DURL_EXAMPLE url.h -mconsole -lws2_32 && ./a.exe
 
+varint:
+	$(CXX) $(OPT) -x c++ -DVARINT_EXAMPLE varint.h -lm && ./a.out
+	$(CC) $(OPT) -x c -DVARINT_EXAMPLE varint.h -lm && ./a.out
+
