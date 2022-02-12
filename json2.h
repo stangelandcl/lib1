@@ -128,12 +128,9 @@ json_error(Json *p) {
 
 static inline int
 json_white(Json *p) {
-	if(p->s >= p->e) return 0;
-	for(;;) {
-		if(p->s == p->e) return 0;
-	        if(*p->s == ' ' || *p->s == '\t' || *p->s == '\n' || *p->s == '\r')  ++p->s;
-		else return 1;
-	}
+	while(p->s < p->e && (*p->s == ' ' || *p->s == '\t' || *p->s == '\n' || *p->s == '\r'))
+		++p->s;
+	return p->s < p->e;
 }
 
 static int
@@ -177,38 +174,34 @@ json_next(Json *p, JsonTok *t) {
 			t->type = JSON_STRING;
 			return 1;
 		case 'n':
-			t->start = p->s - 1;
-			/* handle nan and null. both are effectively null */
-			while(p->s != p->e) {
-				if(*p->s == ',' || *p->s == ']' || *p->s == '}') break;
-				++p->s;
-			}
-			//t->start = p->s-1; p->s += 3;
+		case 'N': /* for NaN */
+			t->start = p->s-1;
+			if(p->e - t->start < 3) goto error;
+			p->s += 2 + (p->s[0] == 'u'); /* handle nan or null */
+			if(p->s > p->e) p->s = p->e; /* bounds check for invalid json */
 			t->end = p->s;
 			t->type = JSON_NULL;
 			return 1;
 		case 't':
 			t->start = p->s-1; p->s += 3;
+			if(p->s > p->e) p->s = p->e; /* bounds check for invalid json */
 			t->end = p->s;
 			t->type = JSON_BOOL;
 			return 1;
 		case 'f':
 			t->start = p->s-1; p->s += 4;
+			if(p->s > p->e) p->s = p->e; /* bounds check for invalid json */
 			t->end = p->s;
 			t->type = JSON_BOOL;
 			return 1;
 		default:
 			t->start = --p->s;
-			if((*p->s >= '0' && *p->s <= '9') || *p->s == '-') {
-				while(p->s != p->e) {
-					if(*p->s == ',' || *p->s == ']' || *p->s == '}') break;
-					++p->s;
-				}
-				t->end = p->s;
-				t->type = JSON_NUMBER;
-				return 1;
-			}
-			goto error;
+			while(p->s != p->e && ((*p->s >= '0' && *p->s <= '9') || *p->s == '-' || *p->s == '+' || *p->s == '.' || *p->s == 'e' || *p->s == 'E'))
+				++p->s;
+			t->end = p->s;
+			if(t->start == t->end) goto error;
+			t->type = JSON_NUMBER;
+			return 1;
 		}
 
 	}
@@ -325,7 +318,8 @@ json_int(JsonTok *t) {
 	int64_t i = 0, s = 1;
 
 	if(p != e) {
-		if(*p == '-') { ++p; s = -1; } /* sign */
+		if(*p == '+') ++p; /* sign */
+		else if(*p == '-') { ++p; s = -1; } /* sign */
 		for(;p != e && *p>='0' && *p<='9';++p) /* int */
 			i = i * 10 + (*p - '0');
 	}
@@ -338,7 +332,9 @@ json_float(JsonTok *t) {
 	int64_t i = 0, j=0, jj=1, k=0, s = 1, ks=1;
 	double f = 0.0;
 	if(p != e) {
-		if(*p == '-') {++p; s = -1; } /* sign */
+		if(*p == 'n' || *p == 'N') return 0.0/0.0; /* nan (or null). not valid json but handle anyway */
+		if(*p == '+') ++p; /* sign. not valid json but handle anyway */
+		else if(*p == '-') {++p; s = -1; } /* sign */
 		for(;p != e && *p>='0' && *p<='9';++p) /* int */
 			i = i * 10 + (*p - '0');
 		f = (double)i;
@@ -394,11 +390,19 @@ int main() {
 		"      {\"stat\": -123.45e7,\n"
 		"       \"flag\":false,\n"
 		"       \"status\":\"on\\t-going\",\n"
-		"       \"count\":49991 },\n"
-		"      {\"stat\": null,\n"
+		"       \"count\"  :   +49991 }  ,\n"
+		"      {  \"stat\":null,\n"
 		"       \"flag\":true,\n"
 		"       \"status\":\"\\uD83D\\ude03 done\",\n"
-		"       \"count\": -10 }\n"
+		"       \"count\": -10 },\n"
+		"      {\"stat\": nan   ,\n"
+		"       \"flag\":true  ,\n"
+		"       \"status\" :  \"what???\",\n"
+		"       \"count\" : -200 },\n"
+		"      {\"stat\": nan   ,\n"
+		"       \"flag\":true  ,\n"
+		"       \"status\" :  \"what???\",\n"
+		"       \"count\" : -200 }\n"
 		"  ]\n"
 		"}";
 	Json p;
@@ -435,8 +439,10 @@ int main() {
 						val.flag = json_bool(&v);
 					else if(JSON_EQ(&k, "status"))
 						val.status = json_strdup(&v);
-					else if(JSON_EQ(&k, "count"))
+					else if(JSON_EQ(&k, "count")) {
+						printf("count='%.*s'\n", (int)(v.end - v.start), v.start);
 						val.count = (int)json_int(&v);
+					}
 					else json_skip(&p, &v); /* always call this
 					function in if chains */
 				}
@@ -457,6 +463,10 @@ int main() {
 #endif
 
 #ifdef JSON_FUZZ
+/* build and run with:
+ 	clang -x c -O3 -ggdb3 -fno-inline-functions -DJSON_FUZZ json2.h -fsanitize=address,undefined,fuzzer -lm
+	./a.out -max_len=100000000
+*/
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t n) {
 	Json p;
 	JsonTok t;
