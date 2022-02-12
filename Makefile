@@ -76,6 +76,10 @@ socks5:
 	$(CC) $(OPT) -x c -DSOCKS5_EXAMPLE socks5.h && ./a.out
 	$(WINCC) $(OPT) -x c -DSOCKS5_EXAMPLE socks5.h -mconsole -lws2_32 && ./a.exe
 
+stream:
+	$(CXX) $(OPT) -x c++ -DSTREAM_EXAMPLE stream.h && ./a.out
+	$(CC) $(OPT) -x c -DSTREAM_EXAMPLE stream.h && ./a.out
+
 teab:
 	$(CXX) $(OPT) -x c++ -DTEAB_EXAMPLE teab.h && ./a.out
 	$(CC) $(OPT) -x c -DTEAB_EXAMPLE teab.h && ./a.out
