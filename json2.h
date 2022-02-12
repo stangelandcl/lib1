@@ -439,10 +439,8 @@ int main() {
 						val.flag = json_bool(&v);
 					else if(JSON_EQ(&k, "status"))
 						val.status = json_strdup(&v);
-					else if(JSON_EQ(&k, "count")) {
-						printf("count='%.*s'\n", (int)(v.end - v.start), v.start);
+					else if(JSON_EQ(&k, "count"))
 						val.count = (int)json_int(&v);
-					}
 					else json_skip(&p, &v); /* always call this
 					function in if chains */
 				}
