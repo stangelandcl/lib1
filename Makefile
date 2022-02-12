@@ -21,6 +21,10 @@ file:
 	$(CXX) $(OPT) -x c++ -DFILE_EXAMPLE file.h && ./a.out
 	$(CC) $(OPT) -x c -DFILE_EXAMPLE file.h && ./a.out
 
+gzip:
+	$(CXX) $(OPT) -x c++ -DGZIP_EXAMPLE gzip.h -lz && ./a.out
+	$(CC) $(OPT) -x c -DGZIP_EXAMPLE gzip.h -lz && ./a.out
+
 hash:
 	$(CXX) $(OPT) -x c++ -DHASH_EXAMPLE hash.h && ./a.out
 	$(CC) $(OPT) -x c -DHASH_EXAMPLE hash.h && ./a.out
