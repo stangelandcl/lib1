@@ -59,6 +59,7 @@ file_writebytes(const char *filename, const void *bytes, size_t n) {
 
 FILE_API char*
 file_readbytes(const char *filename, size_t *n) {
+	*n = 0;
 	FILE *f = fopen(filename, "rb");
 	if(!f) return 0;
 	fseek(f, 0, SEEK_END);

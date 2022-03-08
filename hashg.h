@@ -16,12 +16,20 @@
 extern "C" {
 #endif
 
+typedef struct HashgView {
+	const char *p;
+	size_t n;
+} HashgView;
+
+
 #define HASHG_INT_EQUALS(x, y) ((x) == (y))
 #define HASHG_INT_HASH(x) ((size_t)x)
 #define HASHG_STRING_EQUALS(x, y) (!strcmp(x, y))
 #define HASHG_STRING_HASH(x) hashg_string(x)
 #define HASHG_STRING_LOWER_EQUALS(x, y) hashg_string_lower_equals(x, y)
 #define HASHG_STRING_LOWER_HASH(x) hashg_string_lower(x)
+#define HASHG_VIEW_EQUALS(x, y) ((x).n == (y).n && !memcmp((x).p, (y).p, (x).n))
+#define HASHG_VIEW_HASH(x) hashg_bytes((uint8_t*)(x).p, (x).n)
 
 #define HASHG_DECLARE(name, TKEY, TVALUE, HASH, EQUALS) \
 typedef struct { \
@@ -195,6 +203,16 @@ static size_t hashg_string(const char *str) {
 	if(!str) return hash;
     for(;*str;++str) {
         hash ^= (uint8_t)*str;
+        hash *= 1099511628211;
+    }
+    return (size_t)hash;
+}
+
+static size_t hashg_bytes_lower(const char *str, size_t n) {
+	/* fnv1a64 */
+    uint64_t hash = (uint64_t)14695981039346656037ULL;
+    for(size_t i=0;i<n;i++) {
+        hash ^= (uint8_t)tolower(str[i]);
         hash *= 1099511628211;
     }
     return (size_t)hash;

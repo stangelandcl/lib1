@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: Unlicense */
 #ifndef JSON_H
 #define JSON_H
 
@@ -332,7 +331,7 @@ json_float(JsonTok *t) {
 	int64_t i = 0, j=0, jj=1, k=0, s = 1, ks=1;
 	double f = 0.0;
 	if(p != e) {
-		if(*p == 'n' || *p == 'N') return 0.0/0.0; /* nan (or null). not valid json but handle anyway */
+		if(*p == 'n' || *p == 'N') return nan(""); /* nan (or null). not valid json but handle anyway */
 		if(*p == '+') ++p; /* sign. not valid json but handle anyway */
 		else if(*p == '-') {++p; s = -1; } /* sign */
 		for(;p != e && *p>='0' && *p<='9';++p) /* int */
@@ -414,39 +413,36 @@ int main() {
 	printf("parsing:\n%s\n", json);
 
 	json_init(&p, json, sizeof json - 1);
-	while(json_next(&p, &v)) {
+	while(json_next(&p, &v)) { /* start parser. accepts any type, string, number, object, array, etc */
 		/* always handle all possible object/array values.
 		   primitives are automatically skipped but arrays and objects
 		   must be manually skipped. The simplest rule is
 		   always call json_skip() as part of every
 		   if statement chain. It is safe to call whether
 		   token is actually a composite type or not */
-		if(v.type != JSON_OBJECT) json_skip(&p, &v);
-		else while(json_object(&p, &k, &v)) {
-			if(!JSON_EQ(&k, "values") || v.type != JSON_ARRAY)
-				json_skip(&p, &v);
-			else while(json_array(&p, &v)) {
-				if(v.type != JSON_OBJECT) {
-					json_skip(&p, &v);
-					continue;
-				}
-
-				memset(&val, 0, sizeof val);
-				while(json_object(&p, &k, &v)) {
-					if(JSON_EQ(&k, "stat"))
-						val.stat = json_float(&v);
-					else if(JSON_EQ(&k, "flag"))
-						val.flag = json_bool(&v);
-					else if(JSON_EQ(&k, "status"))
-						val.status = json_strdup(&v);
-					else if(JSON_EQ(&k, "count"))
-						val.count = (int)json_int(&v);
-					else json_skip(&p, &v); /* always call this
-					function in if chains */
-				}
-				vals[nvals++] = val;
+		if(v.type == JSON_OBJECT) { /* { */
+			while(json_object(&p, &k, &v)) { /* for each key-value pair in object */
+				if(JSON_EQ(&k, "values") && v.type == JSON_ARRAY) { /* key is "values" and value is an array */
+					while(json_array(&p, &v)) { /* for each row in array */
+						if(v.type == JSON_OBJECT) { /* if this array item is an object */
+							memset(&val, 0, sizeof val);
+							while(json_object(&p, &k, &v)) { /* for each key-value pair in object */
+								if(JSON_EQ(&k, "stat")) /* if key == "stat", parse value as float */
+									val.stat = json_float(&v);
+								else if(JSON_EQ(&k, "flag")) /* if key == "flag", parse value as bool */
+									val.flag = json_bool(&v);
+								else if(JSON_EQ(&k, "status")) /* if key == "status", parse value as string */
+									val.status = json_strdup(&v);
+								else if(JSON_EQ(&k, "count")) /* if key == "count", parse value as int */
+									val.count = (int)json_int(&v);
+								else json_skip(&p, &v); /* call json_skip as part of all else chains to skip unused/unexpected json values */
+							}
+							vals[nvals++] = val;
+						} else json_skip(&p, &v); /* always call json_skip as part of if chains */
+					}
+				} else json_skip(&p, &v); /* always call json_skip to continue parsing unhandled values */
 			}
-		}
+		} else json_skip(&p, &v); /* always call json_skip to continue parsing unhandled values */
 	}
 
 	printf("parsed %d values\n", nvals);

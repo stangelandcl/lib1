@@ -1,6 +1,8 @@
 #ifndef URL_H
 #define URL_H
 
+#include <stddef.h>
+
 #if defined(URL_STATIC) || defined(URL_EXAMPLE)
 #define URL_API static
 #define URL_IMPLEMENTATION
@@ -19,24 +21,32 @@ authority = [user[:password]@]host[:port]
 
 typedef struct Url {
 	const char *scheme;
+	size_t nscheme;
 	const char *user;
+	size_t nuser;
 	const char *password;
+	size_t npassword;
 	const char *host;
+	size_t nhost;
 	const char *port;
+	size_t nport;
 	const char *path; /* excludes leading / */
+	size_t npath;
 	const char *query;
+	size_t nquery;
 	const char *fragment;
+	size_t nfragment;
 } Url;
 
-typedef struct UrlBuf {
-	/* strings return pointers to buf so much live as long as Url */
-	char buf[4096];
-	Url url;
-} UrlBuf;
+typedef struct UrlParam {
+	const char *param;
+	size_t nparam;
+} UrlParam;
 
-/** return 0 on success */
-URL_API int url_parse(Url *result, char *url);
-URL_API int url_parse_buf(UrlBuf *buf, const char *url);
+/* return number of parameters passed on success, < 0 on failure.
+   if url != NULL && nurl == 0 then nurl will be set to strlen(url).
+   param and nparam may be zero */
+URL_API int url_parse(Url *result, UrlParam *param, size_t nparam, const char *url, size_t nurl);
 
 #ifdef __cplusplus
 }
@@ -48,124 +58,185 @@ URL_API int url_parse_buf(UrlBuf *buf, const char *url);
 #include <string.h>
 #include <stdio.h>
 
-URL_API int url_parse_buf(UrlBuf *buf, const char *url) {
-	int n = snprintf(buf->buf, sizeof buf->buf, "%s", url);
-	if(n >= (int)sizeof buf->buf) return -2;
-	return url_parse(&buf->url, buf->buf);
+
+static int url_strnstr(const char *haystack, size_t nhaystack, const char *needle) {
+	size_t n = strlen(needle);
+	for(int i=0;i<(int)nhaystack && (size_t)i <= nhaystack - n;i++) {
+		if(!strncmp(haystack + i, needle, n))
+			return i;
+	}
+	return -1;
 }
 
-/* return 0 on success. in place modifies url and returns pointers to it in result. */
-URL_API int url_parse(Url *result, char *url) {
-	char *s, *e, *e2;
-	Url *u = result;
-	u->scheme = u->user = u->password = u->host = u->port = u->path = u->query = u->fragment = "";
+/* return number of parameters passed on success, < 0 on failure */
+URL_API int url_parse(Url *u, UrlParam *param, size_t nparam, const char *url, size_t nurl) {
+	memset(u, 0, sizeof *u);
+	if(!nurl) {
+		if(url) nurl = strlen(url);
+		else return -1;
+	}
 
 	/* scheme */
-	s = url;
-	e = strstr(s, ":");
-	if(!e) return -1;
-	*e++ = 0;
-	result->scheme = s;
-	s = e;
+	int pos = url_strnstr(url, nurl, "://");
+	if(!pos) return -2;
+	if(pos > 0) {
+		u->scheme = url;
+		u->nscheme = (unsigned)pos;
+		url += pos + 3;
+		nurl -= pos + 3;
+	}
 
-	/* authorithy */
-	if(s[0] == '/' && s[1] == '/') {
-		s += 2;
-		/* user/password */
-		e = strstr(s, "@");
-		if(e) {
-			result->user = s;
-			*e++ = 0;
-			e2 = strstr(s, ":");
-			if(e2) {
-				result->user = s;
-				*e2++ = 0;
-				result->password = e2;
-			}
-			s = e;
+	/* user and optional password */
+	pos = url_strnstr(url, nurl, "@");
+	if(!pos) return -3;
+	if(pos > 0) {
+		u->user = url;
+		int pos2 = url_strnstr(url, (unsigned)pos, ":");
+		if(pos2 >= 0) {
+			u->nuser = pos2;
+			u->password = url + pos2 + 1;
+			u->npassword = pos - (pos2 + 1);
+		} else {
+			u->nuser = pos;
 		}
+		url += pos + 1;
+		nurl -= pos + 1;
+	}
 
-		/* host and port */
-		result->host = s;
-		e = strstr(s, ":");
-		if(e) {
-			*e++ = 0;
-			result->port = s = e;
+	u->host = url;
+	pos = url_strnstr(url, nurl, "/");
+	if(pos < 0) pos = nurl;
+	if(pos >= 0) {
+		int pos2 = url_strnstr(url, (unsigned)pos, ":");
+		if(pos2 >= 0) {
+			u->nhost = pos2;
+			u->port = url + pos2 + 1;
+			u->nport = pos - (pos2 + 1);
+		} else {
+			u->nhost = pos;
 		}
-		e = strstr(s, "/");
-		if(e) {
-			*e++ = 0;
-			s = e;
-		} else while(*s && (*s != '?' && *s != '#')) ++s;
+		url += pos;
+		nurl -= pos;
+		if(nurl) {
+			u->path = url;
+		}
 	}
 
-	result->path = s;
-	/* query */
-	e = strstr(s, "?");
-	if(e) {
-		*e++ = 0;
-		result->query = s = e;
+	pos = url_strnstr(url, nurl, "?");
+	if(pos >=0) {
+		if(u->path) u->npath = (unsigned)pos;
+		url += pos + 1;
+		nurl -= pos + 1;
+		u->query = url;
 	}
 
-	/* fragment */
-	e = strstr(s, "#");
-	if(e) {
-		*e++ = 0;
-		result->fragment = s = e;
+	pos = url_strnstr(url, nurl, "#");
+	if(pos >= 0) {
+		if(u->query) u->nquery = (unsigned)pos;
+		else if(!u->npath) u->npath = (unsigned)pos;
+		url += pos + 1;
+		nurl -= pos + 1;
+		u->fragment = url;
+		u->nfragment = nurl;
 	}
 
-	return 0;
+	/* no query or fragment */
+	if(u->path && !u->npath) u->npath = nurl;
+	else if(u->query && !u->nquery) u->nquery = nurl;
+
+	const char *query = u->query;
+	size_t nquery = u->nquery;
+	size_t i;
+	for(i=0;i<nparam && nquery;i++) {
+		pos = url_strnstr(query, nquery, "&");
+		if(pos < 0) break;
+		param[i].param = query;
+		param[i].nparam = (unsigned)pos;
+		query += pos + 1;
+		nquery -= pos + 1;
+	}
+	if(i < nparam && nquery) {
+		param[i].param = query;
+		param[i++].nparam = nquery;
+	}
+
+	return (int)i;
 }
 
 #endif
 
 #ifdef URL_EXAMPLE
 #include <assert.h>
+static int EQ(const char *x, size_t nx, const char *y) {
+	return strlen(y) == nx && !strncmp(x, y, nx);
+}
+
+
 int main(int argc, char **argv) {
 	char a[] = "https://google.com";
 	char b[] = "http://bob@example.com:1000";
 	char c[] = "http://bob:pass@example.com";
 	char d[] = "tcp://x:y@test.com:8433/where/at?id=9&id2=4#remainder";
+	
+	assert(url_strnstr(d, strlen(d), "://") == 3);
 	Url u;
-	url_parse(&u, d);
-	assert(!strcmp(u.scheme, "tcp"));
-	assert(!strcmp(u.user, "x"));
-	assert(!strcmp(u.password, "y"));
-	assert(!strcmp(u.host, "test.com"));
-	assert(!strcmp(u.port, "8433"));
-	assert(!strcmp(u.path, "where/at"));
-	assert(!strcmp(u.query, "id=9&id2=4"));
-	assert(!strcmp(u.fragment, "remainder"));
+	UrlParam param[16];
+	int nparam = url_parse(&u, param, 16, d, 0);
+	assert(nparam == 2);
+	assert(EQ(u.scheme, u.nscheme, "tcp"));
+	assert(EQ(u.user, u.nuser, "x"));
+	assert(EQ(u.password, u.npassword, "y"));
+	assert(EQ(u.host, u.nhost, "test.com"));
+	assert(EQ(u.port, u.nport, "8433"));
+	assert(EQ(u.path, u.npath, "where/at"));
+	assert(EQ(u.query, u.nquery, "id=9&id2=4"));
+	assert(EQ(u.fragment, u.nfragment, "remainder"));
+	assert(EQ(param[0].param, param[0].nparam, "id=9"));
+	assert(EQ(param[1].param, param[1].nparam, "id2=4"));
 
-	url_parse(&u, a);
-	assert(!strcmp(u.scheme, "https"));
-	assert(!strcmp(u.host, "google.com"));
-	assert(!strcmp(u.port, ""));
-	assert(!strcmp(u.user, ""));
-	assert(!strcmp(u.password, ""));
-	assert(!strcmp(u.path, ""));
-	assert(!strcmp(u.query, ""));
-	assert(!strcmp(u.fragment, ""));
+	assert(url_parse(&u, 0, 0, a, 0) >= 0);
+	assert(EQ(u.scheme, u.nscheme, "https"));
+	assert(EQ(u.host, u.nhost, "google.com"));
+	assert(!u.port);
+	assert(!u.nport);
+	assert(!u.user);
+	assert(!u.nuser);
+	assert(!u.password);
+	assert(!u.npassword);
+	assert(!u.path);
+	assert(!u.npath);
+	assert(!u.query);
+	assert(!u.nquery);
+	assert(!u.fragment);
+	assert(!u.nfragment);
 
-	url_parse(&u, b);
-	assert(!strcmp(u.scheme, "http"));
-	assert(!strcmp(u.host, "example.com"));
-	assert(!strcmp(u.user, "bob"));
-	assert(!strcmp(u.port, "1000"));
-	assert(!strcmp(u.password, ""));
-	assert(!strcmp(u.path, ""));
-	assert(!strcmp(u.query, ""));
-	assert(!strcmp(u.fragment, ""));
+	assert(url_parse(&u, 0, 0, b, 0) >= 0);
+	assert(EQ(u.scheme, u.nscheme, "http"));
+	assert(EQ(u.host, u.nhost, "example.com"));
+	assert(EQ(u.user, u.nuser, "bob"));
+	assert(EQ(u.port, u.nport, "1000"));
+	assert(!u.password);
+	assert(!u.npassword);
+	assert(!u.path);
+	assert(!u.npath);
+	assert(!u.query);
+	assert(!u.nquery);
+	assert(!u.fragment);
+	assert(!u.fragment);
 
-	url_parse(&u, c);
-	assert(!strcmp(u.scheme, "http"));
-	assert(!strcmp(u.host, "example.com"));
-	assert(!strcmp(u.user, "bob"));
-	assert(!strcmp(u.password, "pass"));
-	assert(!strcmp(u.port, ""));
-	assert(!strcmp(u.path, ""));
-	assert(!strcmp(u.query, ""));
-	assert(!strcmp(u.fragment, ""));
+	assert(url_parse(&u, 0, 0, c, 0) >= 0);
+	assert(EQ(u.scheme, u.nscheme, "http"));
+	assert(EQ(u.host, u.nhost, "example.com"));
+	assert(EQ(u.user, u.nuser, "bob"));
+	assert(EQ(u.password, u.npassword, "pass"));
+	assert(!u.port);
+	assert(!u.nport);
+	assert(!u.path);
+	assert(!u.npath);
+	assert(!u.query);
+	assert(!u.nquery);
+	assert(!u.fragment);
+	assert(!u.nfragment);
 	printf("Success\n");
 }
 #endif

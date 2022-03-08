@@ -17,8 +17,6 @@ extern "C" {
 typedef void (*threadpool_cb)(void *ctx);
 
 THREADPOOL_API void threadpool_run(threadpool_cb, void *ctx);
-/* safe to call multiple times */
-THREADPOOL_API void threadpool_start();
 
 #ifdef __cplusplus
 }
@@ -63,6 +61,7 @@ threadpool_dequeue(ThreadpoolCallback *func) {
 
 static void*
 threadpool_thread_run(void *ctx) {
+        (void) ctx;
         ThreadpoolCallback cb;
         int ready;
         for(;;) {
@@ -78,22 +77,8 @@ threadpool_thread_run(void *ctx) {
         return 0;
 }
 
-THREADPOOL_API void
-threadpool_run(threadpool_cb cb, void *ctx) {
-        ThreadpoolCallback callback;
-        int i;
-        callback.cb = cb;
-        callback.ctx = ctx;
-
-        sem_wait(&threadpool_callback_sem);
-        pthread_mutex_lock(&threadpool_callback_lock);
-        i = (threadpool_callback_head + threadpool_callback_count++) % THREADPOOL_NCALLBACKS;
-        threadpool_callbacks[i] = callback;
-        pthread_cond_signal(&threadpool_callback_cond);
-        pthread_mutex_unlock(&threadpool_callback_lock);
-}
-
-THREADPOOL_API void
+/* safe to call multiple times */
+static void
 threadpool_start() {
         if(threadpool_started) return;
         pthread_mutex_lock(&threadpool_callback_lock);
@@ -109,6 +94,24 @@ threadpool_start() {
         }
         pthread_mutex_unlock(&threadpool_callback_lock);
 }
+
+THREADPOOL_API void
+threadpool_run(threadpool_cb cb, void *ctx) {
+        if(!threadpool_started) threadpool_start();
+
+        ThreadpoolCallback callback;
+        int i;
+        callback.cb = cb;
+        callback.ctx = ctx;
+
+        sem_wait(&threadpool_callback_sem);
+        pthread_mutex_lock(&threadpool_callback_lock);
+        i = (threadpool_callback_head + threadpool_callback_count++) % THREADPOOL_NCALLBACKS;
+        threadpool_callbacks[i] = callback;
+        pthread_cond_signal(&threadpool_callback_cond);
+        pthread_mutex_unlock(&threadpool_callback_lock);
+}
+
 #endif
 #ifdef THREADPOOL_EXAMPLE
 #include <stdio.h>
