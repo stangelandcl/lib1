@@ -18,12 +18,23 @@ REQUESTS_API void request_data(struct Request* req, char **data, size_t *ndata);
 REQUESTS_API char* request_error(struct Request *req);
 REQUESTS_API int request_status(struct Request* req);
 REQUESTS_API char* request_reason(struct Request* req);
+REQUESTS_API char* request_header(struct Request *req, const char *header);
 REQUESTS_API int request_run(struct Request* req);
 REQUESTS_API void request_destroy(struct Request* req);
 
 #endif
 
 #ifdef REQUESTS_IMPLEMENTATION
+#include <string.h>
+
+static int request_strnstr(const char* haystack, size_t nhaystack, const char* needle) {
+    size_t n = strlen(needle);
+    for (int i = 0; i < (int)nhaystack && (size_t)i <= nhaystack - n; i++) {
+        if (!strncmp(haystack + i, needle, n))
+            return i;
+    }
+    return -1;
+}
 
 #ifdef _WIN32
 
@@ -32,7 +43,6 @@ REQUESTS_API void request_destroy(struct Request* req);
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <windows.h>
 #include <winhttp.h>
 
@@ -51,6 +61,12 @@ typedef struct RequestHeader {
     struct RequestHeader* next;
 } RequestHeader;
 
+typedef struct RequestOutputHeader {
+    char *key;
+    char *value;
+    struct RequestOutputHeader *next;
+} RequestOutputHeader;
+
 typedef struct Request {
     HINTERNET handle;
     char* url;
@@ -65,6 +81,7 @@ typedef struct Request {
     SRWLOCK lock;
     char* error;
     RequestHeader* headers;
+    RequestOutputHeader *output_headers;
     unsigned owns_input : 1;
     unsigned complete : 1;
 } Request;
@@ -109,14 +126,6 @@ static char* request_geterror(DWORD err) {
     return e;
 }
 
-static int request_url_strnstr(const char* haystack, size_t nhaystack, const char* needle) {
-    size_t n = strlen(needle);
-    for (int i = 0; i < (int)nhaystack && (size_t)i <= nhaystack - n; i++) {
-        if (!strncmp(haystack + i, needle, n))
-            return i;
-    }
-    return -1;
-}
 
 /* return number of parameters passed on success, < 0 on failure */
 static int request_url_parse(RequestUrl* u, const char* url, size_t nurl) {
@@ -129,7 +138,7 @@ static int request_url_parse(RequestUrl* u, const char* url, size_t nurl) {
     }
 
     /* scheme */
-    int pos = request_url_strnstr(url, nurl, "://");
+    int pos = request_strnstr(url, nurl, "://");
     if (!pos)
         return -2;
     if (pos > 0) {
@@ -140,12 +149,12 @@ static int request_url_parse(RequestUrl* u, const char* url, size_t nurl) {
     }
 
     /* user and optional password */
-    pos = request_url_strnstr(url, nurl, "@");
+    pos = request_strnstr(url, nurl, "@");
     if (!pos)
         return -3;
     if (pos > 0) {
         u->user = url;
-        int pos2 = request_url_strnstr(url, (unsigned)pos, ":");
+        int pos2 = request_strnstr(url, (unsigned)pos, ":");
         if (pos2 >= 0) {
             u->nuser = pos2;
             u->password = url + pos2 + 1;
@@ -158,11 +167,11 @@ static int request_url_parse(RequestUrl* u, const char* url, size_t nurl) {
     }
 
     u->host = url;
-    pos = request_url_strnstr(url, nurl, "/");
+    pos = request_strnstr(url, nurl, "/");
     if (pos < 0)
         pos = nurl;
     if (pos >= 0) {
-        int pos2 = request_url_strnstr(url, (unsigned)pos, ":");
+        int pos2 = request_strnstr(url, (unsigned)pos, ":");
         if (pos2 >= 0) {
             u->nhost = pos2;
             u->port = url + pos2 + 1;
@@ -490,6 +499,56 @@ REQUESTS_API void request_addheader(Request* req, const char* part1, const char*
     req->headers = h;
 }
 
+REQUESTS_API char* request_header(Request *req, const char *header) {
+    /* check cache */
+    size_t n = strlen(header);
+    for(RequestOutputHeader *h = req->output_headers;h;h=h->next) {
+        int match = 1;
+        for(size_t i=0;i<n && match;i++) {
+            if(tolower(header[i]) != tolower(h->key[i]))
+                match = 0;
+        }
+        if(match) return h->value;
+    }
+
+    wchar_t buf[65536], name[1024];
+    DWORD idx = 0, nbuf = sizeof buf - sizeof buf[0];
+    int nname = MultiByteToWideChar(CP_UTF8, 0, header, -1, name, sizeof name / sizeof name[0] - 1);
+    if(nname <= 0) return 0;
+    name[nname] = 0;
+
+#if 0
+    /* dump all headers */
+    wchar_t nn[100000];
+    DWORD nnsz = sizeof nn - 2;
+    WinHttpQueryHeaders(req->handle, WINHTTP_QUERY_RAW_HEADERS_CRLF, WINHTTP_HEADER_NAME_BY_INDEX, nn, &nnsz, WINHTTP_NO_HEADER_INDEX);
+    nn[nnsz] = 0;
+    printf("nn=%ls\n", nn);
+#endif
+
+    if(!WinHttpQueryHeaders(req->handle, WINHTTP_QUERY_CUSTOM, name, buf, &nbuf, WINHTTP_NO_HEADER_INDEX)) {
+        if(GetLastError() == ERROR_WINHTTP_HEADER_NOT_FOUND) return 0;
+        //printf("query failed: %d\n", GetLastError());
+        return 0;
+    }
+
+    char *value;
+    int required = WideCharToMultiByte(CP_UTF8, 0, buf, nbuf / sizeof buf[0], 0, 0, 0, 0);
+    if(required < 0) return 0;
+    value = malloc(required + 1);
+    WideCharToMultiByte(CP_UTF8, 0, buf, nbuf / sizeof buf[0], value, required, 0, 0);
+    value[required] = 0;
+
+    /* add to cache */
+    RequestOutputHeader *h = malloc(sizeof *h);
+    h->key = strdup(header);
+    h->value = value;
+    h->next = req->output_headers;
+    req->output_headers = h;
+
+    return value;
+}
+
 REQUESTS_API void request_destroy(Request* req) {
     free(req->url);
     free(req->verb);
@@ -501,6 +560,13 @@ REQUESTS_API void request_destroy(Request* req) {
     for (RequestHeader* h = req->headers; h;) {
         free(h->header);
         RequestHeader* tmp = h;
+        h = h->next;
+        free(tmp);
+    }
+    for (RequestOutputHeader* h = req->output_headers; h;) {
+        free(h->key);
+        free(h->value);
+        RequestOutputHeader* tmp = h;
         h = h->next;
         free(tmp);
     }
@@ -522,7 +588,13 @@ REQUESTS_API char* request_error(Request *req) {
 #include <pthread.h>
 #include <assert.h>
 #include <stdlib.h>
-#include <string.h>
+#include <ctype.h>
+
+typedef struct RequestHeader {
+    char *key;
+    char *value;
+    struct RequestHeader *next;
+} RequestHeader;
 
 typedef struct Request {
     CURL* curl;
@@ -535,6 +607,7 @@ typedef struct Request {
     char *output;
     size_t noutput;
     size_t output_capacity;
+    RequestHeader *output_headers;
     unsigned complete : 1;
 } Request;
 
@@ -556,7 +629,7 @@ static void* requests_threadrun(void *ctx) {
     for(;;) {
         pthread_mutex_lock(&requests_incoming_mtx);
         for(Request *req = requests_incoming;req;req=req->next) {
-            printf("adding new handle\n");
+            //printf("adding new handle\n");
             curl_multi_add_handle(requests_multi, req->curl);
         }
         requests_incoming = 0;
@@ -570,7 +643,7 @@ static void* requests_threadrun(void *ctx) {
             int msgs;
             msg = curl_multi_info_read(requests_multi, &msgs);
             if(msg && msg->msg == CURLMSG_DONE) {
-                printf("request complete\n");
+                //printf("request complete\n");
                 CURL *curl = msg->easy_handle;
                 curl_multi_remove_handle(requests_multi, curl);
                 Request *req;
@@ -614,12 +687,10 @@ static size_t request_writecb(char *ptr, size_t size, size_t nmemb, void *userda
     Request *req = (Request*)userdata;
     size *= nmemb;
     size_t required = req->noutput + size;
-    printf("required=%zu capacity=%zu\n", required, req->output_capacity);
     if(required > req->output_capacity) {
         size_t cap = req->output_capacity * 2;
         if(cap < 1024*1024) cap = 1024*1024;
         if(cap < required) cap = required;
-        printf("new cap = %zu\n", cap);
         req->output = (char*)realloc(req->output, cap);
         req->output_capacity = cap;
     }
@@ -629,31 +700,75 @@ static size_t request_writecb(char *ptr, size_t size, size_t nmemb, void *userda
     return size;
 }
 
+static void request_destroyheaders(Request *req) {
+    for(RequestHeader *h = req->output_headers;h;) {
+        free(h->key);
+        free(h->value);
+        RequestHeader *next = h->next;
+        free(h);
+        h = next;
+    }
+    req->output_headers = 0;
+}
+
 static size_t request_headercb(char *ptr, size_t size, size_t nmemb, void *userdata) {
+    size_t result = size * nmemb;
+    //printf("header: '%.*s'\n", (int)nmemb, ptr);
     Request *req = (Request*)userdata;
-    if(nmemb >= 13 && !strncmp(ptr, "HTTP/", 5)) {
-        size_t i, spaces = 0;
-        for(i=0;i<nmemb;i++) {
-            if(ptr[i] == ' ') {
-                if(++spaces == 2) {
-                    ++i;
-                    break;
+    int httppos = request_strnstr(ptr, nmemb, "HTTP/");
+    if(httppos == 0) {
+        /* curl includes headers from intermediate queries.
+           keep the ones from the final query only.
+           each new HTTP status indicates a new response */
+        request_destroyheaders(req);
+
+        /* status line */
+        int space = request_strnstr(ptr, nmemb, " ");
+        if(space > 0) {
+            ptr += space + 1;
+            nmemb -= space + 1;
+            space = request_strnstr(ptr, nmemb, " ");
+            if(space > 0) {
+                ptr += space + 1;
+                nmemb -= space + 1;
+                int end = request_strnstr(ptr, nmemb, "\r\n");
+                if(end >= 0) {
+                    free(req->reason);
+                    req->reason = (char*)malloc(end + 1);
+                    memcpy(req->reason, ptr, end);
+                    req->reason[end] = 0;
                 }
             }
         }
-
-        if(i + 2 < nmemb) {
-            free(req->reason);
-            req->reason = 0;
-            req->reason = (char*)malloc(nmemb - i + 1);
-            memcpy(req->reason, ptr + i, nmemb - i - 2); /* skip \r\n */
-            req->reason[nmemb - i - 2] = 0;
-        }
     } else {
+        int colon = request_strnstr(ptr, nmemb, ":");
+        if(colon > 1) {
+            int value = colon + 1;
+            while(value < (int)nmemb && ptr[value] == ' ') ++value;
+
+            char *keystart = ptr;
+            size_t nkey = colon;
+
+            ptr += value;
+            nmemb -= value;
+
+            int end = request_strnstr(ptr, nmemb, "\r\n");
+            if(end >= 0) {
+                RequestHeader *h = (RequestHeader*)malloc(sizeof *h);
+                h->key = (char*)malloc(nkey + 1);
+                memcpy(h->key, keystart, nkey);
+                h->key[nkey] = 0;
+                h->value = (char*)malloc(end + 1);
+                memcpy(h->value, ptr, end);
+                h->value[end] = 0;
+                h->next = req->output_headers;
+                req->output_headers = h;
+            }
+        }
     }
     /* todo parse status lines and headers */
-    printf("header: '%.*s'\n", (int)nmemb, ptr);
-    return nmemb * size;
+
+    return result;
 }
 
 REQUESTS_API Request *request_new(const char *url) {
@@ -692,6 +807,7 @@ REQUESTS_API void request_destroy(Request *req) {
     if(req->curl) curl_easy_cleanup(req->curl);
     pthread_mutex_destroy(&req->mtx);
     pthread_cond_destroy(&req->cnd);
+    request_destroyheaders(req);
     free(req);
 }
 
@@ -713,6 +829,18 @@ REQUESTS_API char* request_error(Request *req) {
 REQUESTS_API char* request_reason(Request *req) {
     return req->reason;
 }
+REQUESTS_API char* request_header(struct Request *req, const char *header) {
+    size_t n = strlen(header);
+    for(RequestHeader *h = req->output_headers;h;h=h->next) {
+        int match = 1;
+        for(size_t i=0;i<n && match;i++) {
+            if(tolower(header[i]) != tolower(h->key[i]))
+                match = 0;
+        }
+        if(match) return h->value;
+    }
+    return 0;
+}
 
 REQUESTS_API int request_run(Request *req) {
     pthread_mutex_lock(&requests_incoming_mtx);
@@ -730,6 +858,12 @@ REQUESTS_API int request_run(Request *req) {
     } while(!done);
 
     return req->error != 0;
+}
+
+static void request_print_headers(Request *req) {
+    for(RequestHeader *h = req->output_headers;h;h=h->next) {
+        printf("%s: %s\n", h->key, h->value);
+    }
 }
 
 
@@ -750,9 +884,12 @@ int main(int argc, char** argv) {
         char* data;
         size_t ndata;
         request_data(req, &data, &ndata);
-        printf("%.*s\n", (int)ndata, data);
+        //printf("%.*s\n", (int)ndata, data);
     }
-    printf("status=%d reason='%s'\n", request_status(req), request_reason(req));
+    printf("status=%d reason=%s\n", request_status(req), request_reason(req));
+    //request_print_headers(req);
+    char *len = request_header(req, "Content-TYPE");
+    printf("content-type=%s\n", len);
     request_destroy(req);
 }
 /* Public Domain (www.unlicense.org)
