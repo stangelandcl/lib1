@@ -79,7 +79,6 @@ rsa_verify(const uint8_t *hash, int nhash, const uint8_t *sig, int nsig,
 /* little endian - d[0] is least significant. d[n-1] is most significant */
 typedef struct { rsa_digit d[RSA_DIGITS]; int n; } RsaInt;
 
-static void rsa_int_print(const char* name, RsaInt *b) {}
 
 /* init from big endian - data[0] = most significant byte */
 static void
@@ -397,7 +396,8 @@ rsa_sign(uint8_t *dst, uint8_t *hash, int nhash, int sha, const uint8_t *e, int 
 char __stdcall SystemFunction036(void* buf, unsigned); /* RtlGenRandom */
 static int getrandom(void* buf, int len, int x)
 {
-        return SystemFunction036(buf, len) ? len : 0;
+    (void)x;
+    return SystemFunction036(buf, len) ? len : 0;
 }
 #else
 #include <sys/random.h>
@@ -408,6 +408,9 @@ static int getrandom(void* buf, int len, int x)
 RSA_API int
 rsa_encrypt(uint8_t *dst, int ndst, const void *text, int ntext, const uint8_t *e, int ne, const uint8_t *m, int me) {
 	RsaInt ie, im;
+
+	assert(ne > 0);
+	assert(me > 0);
 	rsa_int_init(&ie, e, ne);
 	rsa_int_init(&im, m, me);
 
