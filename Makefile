@@ -65,7 +65,12 @@ pg:
 	$(CC) $(OPT) -x c -DPG_EXAMPLE pg.h -lm && ./a.out
 
 pg_win:
-	x86_64-w64-mingw32-gcc $(OPT) -mconsole -x c -DPG_EXAMPLE pg.h -lws2_32 && ./a.out
+	x86_64-w64-mingw32-gcc $(OPT) -mconsole -x c -DPG_EXAMPLE pg.h -lws2_32 && ./a.exe
+
+requests:
+#	$(CXX) $(OPT) -x c++ -DREQUESTS_EXAMPLE requests.h && ./a.out
+#	$(CC) $(OPT) -x c -DREQUESTS_EXAMPLE requests.h && ./a.out
+	x86_64-w64-mingw32-gcc -mconsole -x c -DREQUESTS_EXAMPLE requests.h -lwinhttp && ./a.exe
 
 rsa:
 	$(CXX) $(OPT) -x c++ -DRSA_EXAMPLE rsa.h && ./a.out
