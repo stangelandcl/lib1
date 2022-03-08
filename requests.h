@@ -1,3 +1,32 @@
+#ifndef REQUESTS_H
+#define REQUESTS_H
+
+#include <stddef.h>
+
+#if defined(REQUESTS_STATIC) || defined(REQUESTS_EXAMPLE)
+#define REQUESTS_API static
+#define REQUESTS_IMPLEMENTATION
+#else
+#define REQUESTS_API extern;
+#endif
+
+struct Request;
+
+REQUESTS_API struct Request* request_new(const char* url);
+REQUESTS_API void request_addheader(struct Request* req, const char *part1, const char *part2);
+REQUESTS_API void request_data(struct Request* req, char **data, size_t *ndata);
+REQUESTS_API char* request_error(struct Request *req);
+REQUESTS_API int request_status(struct Request* req);
+REQUESTS_API char* request_reason(struct Request* req);
+REQUESTS_API int request_run(struct Request* req);
+REQUESTS_API void request_destroy(struct Request* req);
+
+#endif
+
+#ifdef REQUESTS_IMPLEMENTATION
+
+#ifdef _WIN32
+
 #define WIN32_LEAN_AND_MEAN
 #include <assert.h>
 #include <ctype.h>
@@ -260,6 +289,23 @@ static void request_init() {
             printf("Error setting winhttp timeouts: %d\n", GetLastError());
             abort();
         }
+
+#ifndef WINHTTP_OPTION_TCP_KEEPALIVE
+#define WINHTTP_OPTION_TCP_KEEPALIVE ((unsigned)152)
+#endif
+        struct tcp_keepalive {
+            unsigned long onoff;
+            unsigned long keepalivetime;
+            unsigned long keepaliveinterval;
+        } alive;
+        alive.onoff = 1;
+        alive.keepalivetime = 15*60*1000;
+        alive.keepaliveinterval = 60*1000;
+        /* set if OS supports it. if not than continue on */
+        if(!WinHttpSetOption(request_session, WINHTTP_OPTION_TCP_KEEPALIVE, &alive, sizeof alive)
+           && GetLastError() != ERROR_WINHTTP_INVALID_OPTION) {
+            printf("Error setting winhttp options: %d\n", GetLastError());
+        }
     }
     ReleaseSRWLockExclusive(&request_lock);
 }
@@ -302,14 +348,14 @@ static HINTERNET request_connect(const char* server, size_t nserver, int port) {
     return hConnect;
 }
 
-static Request* request_new(const char* url) {
+REQUESTS_API Request* request_new(const char* url) {
     Request* req = calloc(1, sizeof *req);
     req->url = strdup(url);
     InitializeConditionVariable(&req->cond);
     return req;
 }
 
-static int request_status(Request* req) {
+REQUESTS_API int request_status(Request* req) {
     if (req->error)
         return -1;
     DWORD code = 0;
@@ -321,7 +367,7 @@ static int request_status(Request* req) {
     return (int)code;
 }
 
-static char* request_reason(Request* req) {
+REQUESTS_API char* request_reason(Request* req) {
     if (req->error)
         return "request_run failed";
     if (!req->reason) {
@@ -416,17 +462,19 @@ static int request_run(Request* req) {
         return -4;
     }
     // printf("request sent\n");
-    while (!req->complete) {
+    int done = 0;
+    do {
         // printf("waiting\n");
         AcquireSRWLockExclusive(&req->lock);
         SleepConditionVariableSRW(&req->cond, &req->lock, INFINITE, 0);
+        done = req->complete;
         ReleaseSRWLockExclusive(&req->lock);
-    }
+    } while(!done);
     // printf("request complete\n");
     return req->error ? -5 : 0;
 }
 
-static void request_addheader(Request* req, const char* part1, const char* part2) {
+REQUESTS_API void request_addheader(Request* req, const char* part1, const char* part2) {
     char buf[8192];
     snprintf(buf, sizeof buf, "%s%s", part1, part2);
     // printf("adding header: %s\n", buf);
@@ -442,12 +490,7 @@ static void request_addheader(Request* req, const char* part1, const char* part2
     req->headers = h;
 }
 
-static void request_data(Request* req, char** data, size_t* ndata) {
-    *data = req->output;
-    *ndata = req->noutput;
-}
-
-static void request_destroy(Request* req) {
+REQUESTS_API void request_destroy(Request* req) {
     free(req->url);
     free(req->verb);
     free(req->reason);
@@ -464,16 +507,252 @@ static void request_destroy(Request* req) {
     free(req);
 }
 
+REQUESTS_API void request_data(Request* req, char** data, size_t* ndata) {
+    *data = req->output;
+    *ndata = req->noutput;
+}
+
+REQUESTS_API char* request_error(Request *req) {
+  return req->error;
+}
+
+#elif defined(__linux__)
+
+#include <curl/curl.h>
+#include <pthread.h>
+#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct Request {
+    CURL* curl;
+    struct curl_slist *headers;
+    pthread_mutex_t mtx;
+    pthread_cond_t cnd;
+    struct Request *next;
+    char *reason;
+    char *error;
+    char *output;
+    size_t noutput;
+    size_t output_capacity;
+    unsigned complete : 1;
+} Request;
+
+static pthread_mutex_t requests_incoming_mtx = PTHREAD_MUTEX_INITIALIZER;
+static Request *requests_incoming;
+static CURLM *requests_multi;
+
+static void* requests_threadrun(void *ctx) {
+    requests_multi = curl_multi_init();
+    if(!requests_multi) {
+        printf("creating multi handle failed\n");
+        abort();
+    }
+    long max_concurrent = 1024;
+    curl_multi_setopt(requests_multi, CURLMOPT_MAX_TOTAL_CONNECTIONS, (long)max_concurrent);
+    curl_multi_setopt(requests_multi, CURLMOPT_MAX_HOST_CONNECTIONS, (long)4);
+    curl_multi_setopt(requests_multi, CURLMOPT_PIPELINING, CURLPIPE_MULTIPLEX);
+
+    for(;;) {
+        pthread_mutex_lock(&requests_incoming_mtx);
+        for(Request *req = requests_incoming;req;req=req->next) {
+            printf("adding new handle\n");
+            curl_multi_add_handle(requests_multi, req->curl);
+        }
+        requests_incoming = 0;
+        pthread_mutex_unlock(&requests_incoming_mtx);
+
+        int running_count;
+        CURLMcode mc = curl_multi_perform(requests_multi, &running_count);
+        assert(!mc);
+        CURLMsg *msg;
+        do {
+            int msgs;
+            msg = curl_multi_info_read(requests_multi, &msgs);
+            if(msg && msg->msg == CURLMSG_DONE) {
+                printf("request complete\n");
+                CURL *curl = msg->easy_handle;
+                curl_multi_remove_handle(requests_multi, curl);
+                Request *req;
+                curl_easy_getinfo(curl, CURLINFO_PRIVATE, &req);
+                if(!req->noutput && msg->data.result != CURLE_OK)
+                    req->error = strdup(curl_easy_strerror(msg->data.result));
+                req->complete = 1;
+                pthread_cond_signal(&req->cnd);
+            }
+        } while(msg);
+
+        int ready;
+        curl_multi_poll(requests_multi, 0, 0, INT_MAX, &ready);
+    }
+    curl_multi_cleanup(requests_multi);
+}
+
+static void requests_init1() {
+    curl_global_init(CURL_GLOBAL_ALL);
+    pthread_t t;
+    if(pthread_create(&t, 0, requests_threadrun, 0)) {
+        printf("requests multi thread create failed\n");
+        abort();
+    }
+}
+
+static void requests_init() {
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, requests_init1);
+}
+
+REQUESTS_API void request_addheader(Request *req, const char *a, const char *b) {
+    size_t n = snprintf(0, 0, "%s%s", a, b);
+    char *c = (char*)malloc(n + 1);
+    snprintf(c, n + 1, "%s%s", a, b);
+    req->headers = curl_slist_append(req->headers, c);
+    free(c);
+}
+
+static size_t request_writecb(char *ptr, size_t size, size_t nmemb, void *userdata) {
+    Request *req = (Request*)userdata;
+    size *= nmemb;
+    size_t required = req->noutput + size;
+    printf("required=%zu capacity=%zu\n", required, req->output_capacity);
+    if(required > req->output_capacity) {
+        size_t cap = req->output_capacity * 2;
+        if(cap < 1024*1024) cap = 1024*1024;
+        if(cap < required) cap = required;
+        printf("new cap = %zu\n", cap);
+        req->output = (char*)realloc(req->output, cap);
+        req->output_capacity = cap;
+    }
+
+    memcpy(req->output + req->noutput, ptr, size);
+    req->noutput += size;
+    return size;
+}
+
+static size_t request_headercb(char *ptr, size_t size, size_t nmemb, void *userdata) {
+    Request *req = (Request*)userdata;
+    if(nmemb >= 13 && !strncmp(ptr, "HTTP/", 5)) {
+        size_t i, spaces = 0;
+        for(i=0;i<nmemb;i++) {
+            if(ptr[i] == ' ') {
+                if(++spaces == 2) {
+                    ++i;
+                    break;
+                }
+            }
+        }
+
+        if(i + 2 < nmemb) {
+            free(req->reason);
+            req->reason = 0;
+            req->reason = (char*)malloc(nmemb - i + 1);
+            memcpy(req->reason, ptr + i, nmemb - i - 2); /* skip \r\n */
+            req->reason[nmemb - i - 2] = 0;
+        }
+    } else {
+    }
+    /* todo parse status lines and headers */
+    printf("header: '%.*s'\n", (int)nmemb, ptr);
+    return nmemb * size;
+}
+
+REQUESTS_API Request *request_new(const char *url) {
+    requests_init();
+    Request *req = (Request*)calloc(1, sizeof *req);
+    assert(req);
+    req->curl = curl_easy_init();
+    curl_easy_setopt(req->curl, CURLOPT_URL, url);
+    curl_easy_setopt(req->curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(req->curl, CURLOPT_NOPROGRESS, 1L);
+    curl_easy_setopt(req->curl, CURLOPT_WRITEFUNCTION, request_writecb);
+    curl_easy_setopt(req->curl, CURLOPT_WRITEDATA, req);
+    curl_easy_setopt(req->curl, CURLOPT_HEADERFUNCTION, request_headercb);
+    curl_easy_setopt(req->curl, CURLOPT_HEADERDATA, req);
+    curl_easy_setopt(req->curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(req->curl, CURLOPT_PRIVATE, req);
+    curl_easy_setopt(req->curl, CURLOPT_TCP_KEEPALIVE, 1L);  /* enable TCP keep-alive for this transfer */
+    curl_easy_setopt(req->curl, CURLOPT_TCP_KEEPIDLE, 15L*60); /* keep-alive idle time in seconds*/
+    curl_easy_setopt(req->curl, CURLOPT_TCP_KEEPINTVL, 60L);   /* interval time between keep-alive probes in seconds.     once an OS specific number of these have failed the OS will close the connection */
+    curl_easy_setopt(req->curl, CURLOPT_LOW_SPEED_TIME, 30L);
+    curl_easy_setopt(req->curl, CURLOPT_LOW_SPEED_LIMIT, 0L);
+    curl_easy_setopt(req->curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    /* disable Expect: 100-continue and 1 sec delay which curl library introduces */
+    req->headers = curl_slist_append(req->headers, "Expect:");
+    //req->headers = curl_slist_append(req->headers, "Transfer-Encoding:"); /* disable chunked encoding */
+    pthread_mutex_init(&req->mtx, 0);
+    pthread_cond_init(&req->cnd, 0);
+    return req;
+}
+
+REQUESTS_API void request_destroy(Request *req) {
+    free(req->error);
+    free(req->output);
+    free(req->reason);
+    if(req->headers) curl_slist_free_all(req->headers);
+    if(req->curl) curl_easy_cleanup(req->curl);
+    pthread_mutex_destroy(&req->mtx);
+    pthread_cond_destroy(&req->cnd);
+    free(req);
+}
+
+REQUESTS_API int request_status(Request *req) {
+    long code = 0;
+    curl_easy_getinfo(req->curl, CURLINFO_RESPONSE_CODE, &code);
+    return (int)code;
+}
+
+REQUESTS_API void request_data(Request *req, char **data, size_t *size) {
+    *data = req->output;
+    *size = req->noutput;
+}
+
+REQUESTS_API char* request_error(Request *req) {
+    return req->error;
+}
+
+REQUESTS_API char* request_reason(Request *req) {
+    return req->reason;
+}
+
+REQUESTS_API int request_run(Request *req) {
+    pthread_mutex_lock(&requests_incoming_mtx);
+    req->next = requests_incoming;
+    requests_incoming = req;
+    pthread_mutex_unlock(&requests_incoming_mtx);
+    curl_multi_wakeup(requests_multi);
+
+    int done = 0;
+    do {
+        pthread_mutex_lock(&req->mtx);
+        pthread_cond_wait(&req->cnd, &req->mtx);
+        done = req->complete;
+        pthread_mutex_unlock(&req->mtx);
+    } while(!done);
+
+    return req->error != 0;
+}
+
+
+//#elif defined(__APPLE__)
+
+#endif
+
+
+#endif
+
+#ifdef REQUESTS_EXAMPLE
+#include <stdio.h>
 int main(int argc, char** argv) {
     Request* req = request_new("google.com");
     if (request_run(req)) {
-        printf("failure: %s\n", req->error);
+        printf("failure: %s\n", request_error(req));
     } else {
         char* data;
         size_t ndata;
         request_data(req, &data, &ndata);
         printf("%.*s\n", (int)ndata, data);
     }
+    printf("status=%d reason='%s'\n", request_status(req), request_reason(req));
     request_destroy(req);
 }
 /* Public Domain (www.unlicense.org)
@@ -494,3 +773,4 @@ AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
 ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
+#endif

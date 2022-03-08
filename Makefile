@@ -68,8 +68,8 @@ pg_win:
 	x86_64-w64-mingw32-gcc $(OPT) -mconsole -x c -DPG_EXAMPLE pg.h -lws2_32 && ./a.exe
 
 requests:
-#	$(CXX) $(OPT) -x c++ -DREQUESTS_EXAMPLE requests.h && ./a.out
-#	$(CC) $(OPT) -x c -DREQUESTS_EXAMPLE requests.h && ./a.out
+	$(CC) $(OPT) -x c -DREQUESTS_EXAMPLE requests.h -l curl -O0 -g -fsanitize=address,undefined && ./a.out
+	$(CXX) $(OPT) -x c++ -DREQUESTS_EXAMPLE requests.h -l curl && ./a.out
 	x86_64-w64-mingw32-gcc -mconsole -x c -DREQUESTS_EXAMPLE requests.h -lwinhttp && ./a.exe
 
 rsa:
