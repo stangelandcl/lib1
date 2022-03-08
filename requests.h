@@ -19,6 +19,7 @@ REQUESTS_API char* request_error(struct Request *req);
 REQUESTS_API int request_status(struct Request* req);
 REQUESTS_API char* request_reason(struct Request* req);
 REQUESTS_API char* request_header(struct Request *req, const char *header);
+REQUESTS_API void request_post(struct Request *req, const char *content_type,  const char *content_encoding,  const char *data, size_t ndata, int copy);
 REQUESTS_API int request_run(struct Request* req);
 REQUESTS_API void request_destroy(struct Request* req);
 
@@ -401,6 +402,36 @@ REQUESTS_API char* request_reason(Request* req) {
     return req->reason;
 }
 
+REQUESTS_API void request_post(
+    Request *req,
+    const char *content_type,
+    const char *content_encoding,
+    const char *data,
+    size_t ndata,
+    int copy)
+{
+    free(req->verb);
+    req->verb = strdup("POST");
+    if(req->owns_input) free(req->input);
+    if(copy) {
+        req->input = malloc(ndata + 1); /* in case ndata is zero */
+        memcpy(req->input, data, ndata);
+        req->owns_input = 1;
+    } else {
+        req->input = (char*)data;
+        req->owns_input = 0;
+    }
+    req->ninput = ndata;
+
+    if(content_type) request_addheader(req, "Content-Type: ", content_type);
+    if(content_encoding) request_addheader(req, "Content-Encoding: ", content_encoding);
+
+    char buf[64];
+    snprintf(buf, sizeof buf, "%zu", ndata);
+    request_addheader(req, "Content-Length: ", buf);
+}
+
+
 static int request_run(Request* req) {
     RequestUrl u;
     if (request_url_parse(&u, req->url, 0))
@@ -465,7 +496,7 @@ static int request_run(Request* req) {
     // printf("request opened\n");
     if (!WinHttpSendRequest(req->handle,
             WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-            WINHTTP_NO_REQUEST_DATA, 0,
+            req->ninput ? req->input : WINHTTP_NO_REQUEST_DATA, req->ninput,
             0, (DWORD_PTR)req)) {
         printf("request failed: %d\n", GetLastError());
         return -4;
@@ -550,6 +581,7 @@ REQUESTS_API char* request_header(Request *req, const char *header) {
 }
 
 REQUESTS_API void request_destroy(Request* req) {
+    if(req->owns_input) free(req->input);
     free(req->url);
     free(req->verb);
     free(req->reason);
@@ -865,6 +897,27 @@ static void request_print_headers(Request *req) {
         printf("%s: %s\n", h->key, h->value);
     }
 }
+
+REQUESTS_API void request_post(
+    Request *req,
+    const char *content_type,
+    const char *content_encoding,
+    const char *data,
+    size_t ndata,
+    int copy)
+{
+    /* length then data or curl runs strlen() */
+    curl_easy_setopt(req->curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)ndata);
+    curl_easy_setopt(req->curl, copy ? CURLOPT_COPYPOSTFIELDS : CURLOPT_POSTFIELDS, data);
+
+    if(content_type) request_addheader(req, "Content-Type: ", content_type);
+    if(content_encoding) request_addheader(req, "Content-Encoding: ", content_encoding);
+
+    char buf[64];
+    snprintf(buf, sizeof buf, "%zu", ndata);
+    request_addheader(req, "Content-Length: ", buf);
+}
+
 
 
 //#elif defined(__APPLE__)
