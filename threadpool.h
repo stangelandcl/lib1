@@ -25,9 +25,41 @@ THREADPOOL_API void threadpool_run(threadpool_cb, void *ctx);
 #endif
 
 #ifdef THREADPOOL_IMPLEMENTATION
-#include <pthread.h>
-#include <semaphore.h>
+#include "thread.h"
+#ifndef _WIN32
 #include <unistd.h>
+#endif
+typedef struct sem_t {
+        mtx_t mtx;
+        cnd_t cnd;
+        int count;
+} sem_t;
+int sem_init(sem_t *sem, int unused, int count) {
+    (void)unused;
+    sem->count = count;
+    int res = mtx_init(&sem->mtx, mtx_plain);
+    if(!res) res = cnd_init(&sem->cnd);
+    return res;
+}
+
+void sem_destroy(sem_t *sem) {
+    mtx_destroy(&sem->mtx);
+    cnd_destroy(&sem->cnd);
+}
+
+void sem_post(sem_t *sem) {
+    mtx_lock(&sem->mtx);
+    ++sem->count;
+    cnd_signal(&sem->cnd);
+    mtx_unlock(&sem->mtx);
+}
+
+void sem_wait(sem_t *sem) {
+    mtx_lock(&sem->mtx);
+    while (sem->count == 0) cnd_wait(&sem->cnd, &sem->mtx);
+    --sem->count;
+    mtx_unlock(&sem->mtx);
+}
 
 /*************************************
  *      Minimalist threadpool
@@ -41,9 +73,10 @@ typedef struct ThreadpoolCallback {
 static ThreadpoolCallback threadpool_callbacks[THREADPOOL_NCALLBACKS];
 static int threadpool_callback_head;
 static int threadpool_callback_count;
+static once_flag threadpool_callback_lock_init;
 static sem_t threadpool_callback_sem;
-static pthread_cond_t threadpool_callback_cond = PTHREAD_COND_INITIALIZER;
-static pthread_mutex_t threadpool_callback_lock = PTHREAD_MUTEX_INITIALIZER;
+static cnd_t threadpool_callback_cond;
+static mtx_t threadpool_callback_lock;
 static int threadpool_started;
 
 static int
@@ -59,40 +92,52 @@ threadpool_dequeue(ThreadpoolCallback *func) {
         return run;
 }
 
-static void*
+static int
 threadpool_thread_run(void *ctx) {
         (void) ctx;
         ThreadpoolCallback cb;
         int ready;
         for(;;) {
-                pthread_mutex_lock(&threadpool_callback_lock);
+                mtx_lock(&threadpool_callback_lock);
                 ready = threadpool_dequeue(&cb);
                 while(!ready) {
-                        pthread_cond_wait(&threadpool_callback_cond, &threadpool_callback_lock);
+                        cnd_wait(&threadpool_callback_cond, &threadpool_callback_lock);
                         ready = threadpool_dequeue(&cb);
                 }
-                pthread_mutex_unlock(&threadpool_callback_lock);
+                mtx_unlock(&threadpool_callback_lock);
                 if(ready) cb.cb(cb.ctx);
         }
         return 0;
+}
+
+static void threadpool_lock_init(void) {
+        mtx_init(&threadpool_callback_lock, mtx_plain);
 }
 
 /* safe to call multiple times */
 static void
 threadpool_start() {
         if(threadpool_started) return;
-        pthread_mutex_lock(&threadpool_callback_lock);
+        call_once(&threadpool_callback_lock_init, threadpool_lock_init);
+        mtx_lock(&threadpool_callback_lock);
         if(!threadpool_started) {
+            cnd_init(&threadpool_callback_cond);
             sem_init(&threadpool_callback_sem, 0, THREADPOOL_NCALLBACKS);
+#ifdef _WIN32
+            SYSTEM_INFO info = {0};
+            GetSystemInfo(&info);
+            int cpus = (int)info.dwNumberOfProcessors;
+#else
             int cpus = sysconf(_SC_NPROCESSORS_ONLN);
+#endif
             if(cpus < 1) cpus = 1;
             while(cpus--) {
-                    pthread_t t;
-                    pthread_create(&t, 0, threadpool_thread_run, 0);
+                    thrd_t t;
+                    thrd_create(&t, threadpool_thread_run, 0);
             }
             threadpool_started = 1;
         }
-        pthread_mutex_unlock(&threadpool_callback_lock);
+        mtx_unlock(&threadpool_callback_lock);
 }
 
 THREADPOOL_API void
@@ -105,11 +150,11 @@ threadpool_run(threadpool_cb cb, void *ctx) {
         callback.ctx = ctx;
 
         sem_wait(&threadpool_callback_sem);
-        pthread_mutex_lock(&threadpool_callback_lock);
+        mtx_lock(&threadpool_callback_lock);
         i = (threadpool_callback_head + threadpool_callback_count++) % THREADPOOL_NCALLBACKS;
         threadpool_callbacks[i] = callback;
-        pthread_cond_signal(&threadpool_callback_cond);
-        pthread_mutex_unlock(&threadpool_callback_lock);
+        cnd_signal(&threadpool_callback_cond);
+        mtx_unlock(&threadpool_callback_lock);
 }
 
 #endif

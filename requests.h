@@ -33,6 +33,7 @@ REQUESTS_API void request_destroy(struct Request* req);
 
 #endif
 
+#define REQUESTS_IMPLEMENTATION
 #ifdef REQUESTS_IMPLEMENTATION
 #include <string.h>
 
@@ -55,7 +56,7 @@ static int request_strnstr(const char* haystack, size_t nhaystack, const char* n
 #include <windows.h>
 #include <winhttp.h>
 
-#pragma comment(lib, winhttp.lib)
+#pragma comment(lib, "winhttp.lib")
 
 typedef struct Conn {
     char server[128];
@@ -116,23 +117,34 @@ static Conn* request_conns;
 static SRWLOCK request_lock;
 
 static char* request_geterror(DWORD err) {
-    LPSTR buf = 0;
+    char *buf = 0;
     DWORD n = FormatMessageA(
-        FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-        0, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&buf, 0, 0);
-    // printf("n error=%u\n", n);
+        FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ALLOCATE_BUFFER,
+        0, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (char*)&buf, 0, 0);
+    //printf("n error=%u %d\n", n, (int)GetLastError());
     char* e;
     if (n) {
         e = malloc(n + 1);
         memcpy(e, buf, n);
         e[n] = 0;
-    } else {
-        char b[256];
-        snprintf(b, sizeof b, "Unknown winhttp error: %u", err);
-        e = strdup(b);
-    }
-    if (buf)
         LocalFree(buf);
+    } else {
+        /* some WINHTTP error codes are missing from FormatMessageA */
+        switch(err) {
+        case ERROR_WINHTTP_CANNOT_CONNECT:
+            e = strdup("ERROR_WINHTTP_CANNOT_CONNECT: Connecting to server failed");
+            break;
+        case ERROR_WINHTTP_TIMEOUT:
+            e = strdup("ERROR_WINHTTP_TIMEOUT: Operation timed out");
+            break;
+        default: {
+            char b[256];
+            snprintf(b, sizeof b, "Unknown winhttp error: %d", (int)err);
+            e = strdup(b);
+            break;
+        }
+        }
+    }
     return e;
 }
 
@@ -179,7 +191,7 @@ static int request_url_parse(RequestUrl* u, const char* url, size_t nurl) {
     u->host = url;
     pos = request_strnstr(url, nurl, "/");
     if (pos < 0)
-        pos = nurl;
+        pos = (int)nurl;
     if (pos >= 0) {
         int pos2 = request_strnstr(url, (unsigned)pos, ":");
         if (pos2 >= 0) {
@@ -201,6 +213,7 @@ static int request_url_parse(RequestUrl* u, const char* url, size_t nurl) {
 }
 
 static void request_callback(HINTERNET session, DWORD_PTR ctx, DWORD status, void* info, DWORD ninfo) {
+    (void)session;
     Request* req = (Request*)ctx;
     // printf("callback: status=%u ninfo=%u\n", status, ninfo);
     switch (status) {
@@ -243,7 +256,7 @@ static void request_callback(HINTERNET session, DWORD_PTR ctx, DWORD status, voi
     case WINHTTP_CALLBACK_STATUS_WRITE_COMPLETE:
         // printf("request write complete\n");
         break;
-    case WINHTTP_CALLBACK_STATUS_REQUEST_ERROR:
+    case WINHTTP_CALLBACK_STATUS_REQUEST_ERROR: {
         // printf("request callback error\n");
         WINHTTP_ASYNC_RESULT* r = info;
         // printf("error code=%u\n", r->dwError);
@@ -251,7 +264,7 @@ static void request_callback(HINTERNET session, DWORD_PTR ctx, DWORD status, voi
         // printf("error: %s\n", req->error);
         req->complete = 1;
         WakeConditionVariable(&req->cond);
-        break;
+    } break;
     default:
         // printf("request unhandled callback\n");
         break;
@@ -272,40 +285,40 @@ static void request_init() {
             RequestUrl u;
             int rc = request_url_parse(&u, proxybuf, nproxybuf);
             if (rc) {
-                rc = MultiByteToWideChar(CP_UTF8, 0, proxybuf, nproxybuf, proxy, sizeof proxy / sizeof proxy[0]);
+                rc = MultiByteToWideChar(CP_UTF8, 0, proxybuf, (int)nproxybuf, proxy, (int)(sizeof proxy / sizeof proxy[0]));
                 assert(rc > 0);
                 proxy[rc] = 0;
             } else {
                 char tmp[128];
                 snprintf(tmp, sizeof tmp, "%.*s:%.*s", (int)u.nhost, u.host, (int)u.nport, u.port);
                 // printf("setting proxy=%s\n", tmp);
-                rc = MultiByteToWideChar(CP_UTF8, 0, tmp, -1, proxy, sizeof proxy / sizeof proxy[0]);
+                rc = MultiByteToWideChar(CP_UTF8, 0, tmp, -1, proxy, (int)(sizeof proxy / sizeof proxy[0]));
                 proxy[rc] = 0;
             }
         } else
             proxy[0] = 0;
-        // printf("proxy=%ls\n", proxy);
+        //printf("proxy=%ls\n", proxy);
 
         request_session = WinHttpOpen(
             L"winhttp",
-            proxy[0] ? WINHTTP_ACCESS_TYPE_NAMED_PROXY : WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+            proxy[0] ? WINHTTP_ACCESS_TYPE_NAMED_PROXY : WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
             proxy[0] ? proxy : WINHTTP_NO_PROXY_NAME,
-            proxy[0] ? L"localhost:127.0.0.1" : WINHTTP_NO_PROXY_BYPASS,
+            proxy[0] ? L"localhost;127.0.0.1" : WINHTTP_NO_PROXY_BYPASS,
             WINHTTP_FLAG_ASYNC);
         if (!request_session) {
-            printf("Error creating winhttp session: %d\n", GetLastError());
+            printf("Error creating winhttp session: %d\n", (int)GetLastError());
             abort();
         }
 
         assert(request_session);
 
         if (WinHttpSetStatusCallback(request_session, request_callback, WINHTTP_CALLBACK_FLAG_ALL_COMPLETIONS, 0) == WINHTTP_INVALID_STATUS_CALLBACK) {
-            printf("Error installing http request callback: %d\n", GetLastError());
+            printf("Error installing http request callback: %d\n", (int)GetLastError());
             abort();
         }
 
         if (!WinHttpSetTimeouts(request_session, 8 * 1000, 10 * 1000, 15 * 60 * 1000, 60 * 60 * 1000)) {
-            printf("Error setting winhttp timeouts: %d\n", GetLastError());
+            printf("Error setting winhttp timeouts: %d\n", (int)GetLastError());
             abort();
         }
 
@@ -323,7 +336,7 @@ static void request_init() {
         /* set if OS supports it. if not than continue on */
         if(!WinHttpSetOption(request_session, WINHTTP_OPTION_TCP_KEEPALIVE, &alive, sizeof alive)
            && GetLastError() != ERROR_WINHTTP_INVALID_OPTION) {
-            printf("Error setting winhttp options: %d\n", GetLastError());
+            printf("Error setting winhttp options: %d\n", (int)GetLastError());
         }
     }
     ReleaseSRWLockExclusive(&request_lock);
@@ -344,13 +357,13 @@ static HINTERNET request_connect(const char* server, size_t nserver, int port) {
     ReleaseSRWLockExclusive(&request_lock);
 
     wchar_t buf[128];
-    int rc = MultiByteToWideChar(CP_UTF8, 0, server, nserver, buf, sizeof buf / sizeof buf[0]);
+    int rc = MultiByteToWideChar(CP_UTF8, 0, server, (int)nserver, buf, (int)(sizeof buf / sizeof buf[0]));
     assert(rc > 0);
     buf[rc] = 0;
     HINTERNET hConnect = WinHttpConnect(request_session, buf, port, 0);
     if (!hConnect) {
 
-        printf("Error connecting to %s:%d: %d\n", server, port, GetLastError());
+        printf("Error connecting to %s:%d: %d\n", server, port, (int)GetLastError());
         return 0;
     }
 
@@ -374,11 +387,25 @@ REQUESTS_API Request* request_new(const char* url) {
     return req;
 }
 
+/* for RTools40 mingw64 */
+#ifndef WINHTTP_OPTION_DECOMPRESSION
+#define WINHTTP_OPTION_DECOMPRESSION 118
+#endif
+
+#ifndef WINHTTP_DECOMPRESSION_FLAG_ALL
+#define WINHTTP_DECOMPRESSION_FLAG_GZIP     0x00000001
+#define WINHTTP_DECOMPRESSION_FLAG_DEFLATE  0x00000002
+
+#define WINHTTP_DECOMPRESSION_FLAG_ALL ( \
+    WINHTTP_DECOMPRESSION_FLAG_GZIP    | \
+    WINHTTP_DECOMPRESSION_FLAG_DEFLATE)
+#endif
+
 REQUESTS_API void request_decompress(Request* req) {
     DWORD flags = WINHTTP_DECOMPRESSION_FLAG_ALL;
     if(!WinHttpSetOption(req->handle, WINHTTP_OPTION_DECOMPRESSION, &flags, sizeof flags)) {
         /* should only fail on wine */
-        //printf("setting decompression failed: '%d'", GetLastError());
+        //printf("setting decompression failed: '%d'", (int)GetLastError());
     }
 }
 
@@ -405,7 +432,7 @@ REQUESTS_API char* request_reason(Request* req) {
                 WINHTTP_QUERY_STATUS_TEXT,
                 WINHTTP_HEADER_NAME_BY_INDEX,
                 reason, &nr, WINHTTP_NO_HEADER_INDEX)) {
-            // printf("get reason failed: %d\n", GetLastError());
+            // printf("get reason failed: %d\n", (int)GetLastError());
             nr = 0;
         }
         // printf("got reason nr=%u\n", nr);
@@ -449,7 +476,7 @@ REQUESTS_API void request_post(
 }
 
 
-static void requests_run(Request** reqs, size_t nreqs) {
+REQUESTS_API void requests_run(Request** reqs, size_t nreqs) {
     for(size_t ireq=0;ireq<nreqs;ireq++) {
         Request *req = reqs[ireq];
         RequestUrl u;
@@ -488,10 +515,10 @@ static void requests_run(Request** reqs, size_t nreqs) {
             req->error = strdup("Erorr parsing URL");
             continue;
         }
-        int n = MultiByteToWideChar(CP_UTF8, 0, u.path, req->url - u.path, 0, 0);
+        int n = MultiByteToWideChar(CP_UTF8, 0, u.path, (int)(req->url - u.path), 0, 0);
         assert(n >= 0);
         wchar_t* pbuf = malloc((n + 1) * sizeof(wchar_t));
-        MultiByteToWideChar(CP_UTF8, 0, u.path, req->url - u.path, pbuf, n);
+        MultiByteToWideChar(CP_UTF8, 0, u.path, (int)(req->url - u.path), pbuf, (int)n);
         pbuf[n] = 0;
         // printf("verb='%ls'\n", vbuf);
         // printf("pbuf=%ls\n", pbuf);
@@ -520,17 +547,19 @@ static void requests_run(Request** reqs, size_t nreqs) {
                     h->header,
                     -1,
                     WINHTTP_ADDREQ_FLAG_REPLACE | WINHTTP_ADDREQ_FLAG_ADD)) {
-                printf("adding headers failed: %d\n", GetLastError());
+                printf("adding headers failed: %d\n", (int)GetLastError());
             }
         }
 
         // printf("request opened\n");
         if (!WinHttpSendRequest(req->handle,
                 WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                req->ninput ? req->input : WINHTTP_NO_REQUEST_DATA, req->ninput,
-                0, (DWORD_PTR)req)) {
+                req->ninput ? req->input : WINHTTP_NO_REQUEST_DATA,
+                (DWORD)req->ninput,
+                0,
+                (DWORD_PTR)req)) {
             char buf[1024];
-            snprintf(buf, sizeof buf, "WinHttpSendRequest failed: winhttp code=%d\n", GetLastError());
+            snprintf(buf, sizeof buf, "WinHttpSendRequest failed: winhttp code=%d\n", (int)GetLastError());
             req->complete = 1;
             req->error = strdup(buf);
             continue;
@@ -551,7 +580,7 @@ static void requests_run(Request** reqs, size_t nreqs) {
     }
 }
 
-static int request_run(Request *req) {
+REQUESTS_API int request_run(Request *req) {
     requests_run(&req, 1);
     return req->error ? -5 : 0;
 }
@@ -563,7 +592,7 @@ REQUESTS_API void request_addheader(Request* req, const char* part1, const char*
     int n = MultiByteToWideChar(CP_UTF8, 0, buf, -1, 0, 0);
     assert(n >= 0);
     wchar_t* pbuf = malloc(n * sizeof(wchar_t));
-    MultiByteToWideChar(CP_UTF8, 0, buf, -1, pbuf, n);
+    MultiByteToWideChar(CP_UTF8, 0, buf, -1, pbuf, (int)n);
     // printf("adding '%.*ls'\n", n, pbuf);
 
     RequestHeader* h = calloc(1, sizeof *h);
@@ -586,7 +615,7 @@ REQUESTS_API char* request_header(Request *req, const char *header) {
 
     wchar_t buf[65536], name[1024];
     DWORD idx = 0, nbuf = sizeof buf - sizeof buf[0];
-    int nname = MultiByteToWideChar(CP_UTF8, 0, header, -1, name, sizeof name / sizeof name[0] - 1);
+    int nname = MultiByteToWideChar(CP_UTF8, 0, header, -1, name, (int)(sizeof name / sizeof name[0] - 1));
     if(nname <= 0) return 0;
     name[nname] = 0;
 
@@ -601,7 +630,7 @@ REQUESTS_API char* request_header(Request *req, const char *header) {
 
     if(!WinHttpQueryHeaders(req->handle, WINHTTP_QUERY_CUSTOM, name, buf, &nbuf, WINHTTP_NO_HEADER_INDEX)) {
         if(GetLastError() == ERROR_WINHTTP_HEADER_NOT_FOUND) return 0;
-        //printf("query failed: %d\n", GetLastError());
+        //printf("query failed: %d\n", (int)GetLastError());
         return 0;
     }
 
@@ -629,7 +658,6 @@ REQUESTS_API void request_destroy(Request* req) {
     free(req->reason);
     if (req->handle)
         WinHttpCloseHandle(req->handle);
-    free(req->input);
     free(req->output);
     for (RequestHeader* h = req->headers; h;) {
         free(h->header);
@@ -656,13 +684,115 @@ REQUESTS_API char* request_error(Request *req) {
   return req->error;
 }
 
-#elif defined(__linux__)
+#elif defined(__linux__) || defined(__APPLE__)
 
-#include <curl/curl.h>
 #include <pthread.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdio.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
+#ifdef REQUESTS_HAVE_CURL_H
+#include <curl/curl.h>
+#else
+#ifdef __cplusplus
+extern "C" {
+#endif
+typedef int64_t curl_off_t;
+typedef void CURL;
+typedef void CURLM;
+typedef int CURLcode;
+typedef int CURLMcode;
+typedef int CURLMSG;
+typedef int CURLMoption;
+typedef int CURLINFO;
+typedef int CURLoption;
+#ifdef _WIN32
+typedef int64_t curl_socket_t;
+#else
+typedef int curl_socket_t;
+#endif
+struct CURLMsg {
+  CURLMSG msg;       /* what this message means */
+  CURL *easy_handle; /* the handle it concerns */
+  union {
+    void *whatever;    /* message-specific data */
+    CURLcode result;   /* return code for transfer */
+  } data;
+};
+typedef struct CURLMsg CURLMsg;
+struct curl_waitfd {
+  curl_socket_t fd;
+  short events;
+  short revents; /* not supported yet */
+};
+struct curl_slist {
+  char *data;
+  struct curl_slist *next;
+};
+CURLcode curl_global_init(long flags);
+const char *curl_easy_strerror(CURLcode);
+CURLM *curl_multi_init(void);
+CURLMsg *curl_multi_info_read(CURLM *multi_handle, int *msgs_in_queue);
+CURLMcode curl_multi_perform(CURLM *multi_handle, int *running_handles);
+CURLMcode curl_multi_setopt(CURLM *multi_handle, CURLMoption option, ...);
+CURLMcode curl_multi_remove_handle(CURLM *multi_handle, CURL *curl_handle);
+CURLMcode curl_multi_wait(CURLM *multi_handle,
+                                      struct curl_waitfd extra_fds[],
+                                      unsigned int extra_nfds,
+                                      int timeout_ms,
+                                      int *ret);
+CURLMcode curl_multi_cleanup(CURLM *multi_handle);
+struct curl_slist *curl_slist_append(struct curl_slist *, const char *);
+CURL *curl_easy_init(void);
+CURLcode curl_easy_setopt(CURL *curl, CURLoption option, ...);
+void curl_easy_cleanup(CURL *curl);
+void curl_slist_free_all(struct curl_slist *);
+CURLcode curl_easy_getinfo(CURL *curl, CURLINFO info, ...);
+CURLMcode curl_multi_add_handle(CURLM *multi_handle, CURL *curl_handle);
+#define CURLE_OK 0
+#define CURLMSG_DONE 1
+#define CURLMOPT_PIPELINING 3
+#define CURLMOPT_MAX_HOST_CONNECTIONS 7
+#define CURLMOPT_MAX_TOTAL_CONNECTIONS 13
+#define CURLOPT_HTTPHEADER 10023
+#define CURLOPT_WRITEDATA 10001
+#define CURLOPT_URL 10002
+#define CURLOPT_WRITEFUNCTION 20011
+#define CURLOPT_LOW_SPEED_LIMIT 19
+#define CURLOPT_LOW_SPEED_TIME 20
+#define CURLOPT_HEADERDATA 10029
+#define CURLOPT_NOPROGRESS 43
+#define CURLOPT_FOLLOWLOCATION 52
+#define CURLOPT_CONNECTTIMEOUT 78
+#define CURLOPT_HEADERFUNCTION 20079
+#define CURLOPT_HTTP_VERSION 84
+#define CURLOPT_ACCEPT_ENCODING 10102
+#define CURLOPT_PRIVATE 10103
+#define CURLOPT_TCP_KEEPALIVE 213
+#define CURLOPT_TCP_KEEPIDLE 214
+#define CURLOPT_TCP_KEEPINTVL 215
+#define CURLINFO_PRIVATE 1048597
+#define CURL_WAIT_POLLIN    0x0001
+#define CURL_WAIT_POLLOUT   0x0004
+#define CURL_GLOBAL_SSL (1<<0) /* no purpose since since 7.57.0 */
+#define CURL_GLOBAL_WIN32 (1<<1)
+#define CURL_GLOBAL_ALL (CURL_GLOBAL_SSL|CURL_GLOBAL_WIN32)
+#define CURLOPT_VERBOSE 41
+#define CURLINFO_RESPONSE_CODE 2097154
+#define CURLOPT_POSTFIELDSIZE_LARGE 30120
+#define CURLOPT_POSTFIELDS 10015
+#define CURLOPT_COPYPOSTFIELDS 10165
+
+#define CURL_HTTP_VERSION_1_1 2
+#ifdef __cplusplus
+}
+#endif
+#endif
 
 typedef struct RequestHeader {
     char *key;
@@ -689,6 +819,9 @@ struct Request {
 static pthread_mutex_t requests_incoming_mtx = PTHREAD_MUTEX_INITIALIZER;
 static Request *requests_incoming;
 static CURLM *requests_multi;
+static int requests_waiter;
+static int requests_wakeup;
+
 
 static void* requests_threadrun(void *ctx) {
     (void)ctx;
@@ -697,10 +830,13 @@ static void* requests_threadrun(void *ctx) {
         printf("creating multi handle failed\n");
         abort();
     }
+
+#if LIBCURL_VERSION_MAJOR > 7 || (LIBCURL_VERSION_MAJOR == 7 && LIBCURL_VERSION_MINOR >= 30)
     long max_concurrent = 1024;
     curl_multi_setopt(requests_multi, CURLMOPT_MAX_TOTAL_CONNECTIONS, (long)max_concurrent);
     curl_multi_setopt(requests_multi, CURLMOPT_MAX_HOST_CONNECTIONS, (long)4);
     curl_multi_setopt(requests_multi, CURLMOPT_PIPELINING, CURLPIPE_MULTIPLEX);
+#endif
 
     for(;;) {
         pthread_mutex_lock(&requests_incoming_mtx);
@@ -732,7 +868,16 @@ static void* requests_threadrun(void *ctx) {
         } while(msg);
 
         int ready;
-        curl_multi_poll(requests_multi, 0, 0, INT_MAX, &ready);
+        struct curl_waitfd fd;
+        fd.fd = requests_waiter;
+        fd.events = CURL_WAIT_POLLIN;
+        fd.revents = 0;
+        curl_multi_wait(requests_multi, &fd, 1, INT_MAX, &ready);
+        if(fd.revents) {
+            /* drain socket */
+            char buf[1024];
+            read(fd.fd, buf, sizeof buf);
+        }
     }
     curl_multi_cleanup(requests_multi);
 }
@@ -742,6 +887,21 @@ static void requests_init1() {
     pthread_t t;
     if(pthread_create(&t, 0, requests_threadrun, 0)) {
         printf("requests multi thread create failed\n");
+        abort();
+    }
+
+    int socks[2];
+    if(socketpair(AF_LOCAL, SOCK_STREAM, 0, socks)) {
+        printf("socketpair for waking CURL could not be created\n");
+        abort();
+    }
+
+    requests_waiter = socks[0];
+    requests_wakeup = socks[1];
+
+    int flags = fcntl(requests_waiter, F_GETFL);
+    if(fcntl(requests_waiter, F_SETFL, flags | O_NONBLOCK)) {
+        printf("socketpair could not be set to nonblocking\n");
         abort();
     }
 }
@@ -756,6 +916,7 @@ REQUESTS_API void request_addheader(Request *req, const char *a, const char *b) 
     char *c = (char*)malloc(n + 1);
     snprintf(c, n + 1, "%s%s", a, b);
     req->headers = curl_slist_append(req->headers, c);
+    curl_easy_setopt(req->curl, CURLOPT_HTTPHEADER, req->headers);
     free(c);
 }
 
@@ -856,6 +1017,7 @@ REQUESTS_API Request *request_new(const char *url) {
     Request *req = (Request*)calloc(1, sizeof *req);
     assert(req);
     req->curl = curl_easy_init();
+    if(getenv("REQUESTS_VERBOSE")) curl_easy_setopt(req->curl, CURLOPT_VERBOSE, 1L);
     curl_easy_setopt(req->curl, CURLOPT_URL, url);
     curl_easy_setopt(req->curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(req->curl, CURLOPT_NOPROGRESS, 1L);
@@ -931,7 +1093,8 @@ REQUESTS_API void requests_run(Request **reqs, size_t nreqs) {
         requests_incoming = req;
     }
     pthread_mutex_unlock(&requests_incoming_mtx);
-    curl_multi_wakeup(requests_multi);
+    char wakeup = 1;
+    write(requests_wakeup, &wakeup, sizeof wakeup);
 
     for(size_t i=0;i<nreqs;i++) {
         Request *req = reqs[i];
@@ -978,8 +1141,6 @@ REQUESTS_API void request_post(
 }
 
 
-
-//#elif defined(__APPLE__)
 
 #endif
 

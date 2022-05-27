@@ -306,7 +306,7 @@ json_strdup(JsonTok *t) {
 
 JSON_API int
 json_bool(JsonTok *t) {
-	int n = t->end - t->start;
+	int n = (int)(t->end - t->start);
 	/* check for 4 in case this is actually a non-bool token */
 	return n == 4 && t->start[0] == 't';
 }

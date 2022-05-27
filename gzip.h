@@ -24,9 +24,9 @@ extern "C" {
 #define GZIP_ZLIB 2
 
 /* returns max compressed size or < 0 for error */
-GZIP_API ssize_t gzip_bound(int format, size_t uncompressed_length);
+GZIP_API ptrdiff_t gzip_bound(int format, size_t uncompressed_length);
 /* returns compressed size or < 0 for error */
-GZIP_API ssize_t gzip_compress(int format, void *dst, size_t ndst, const void *src, size_t nsrc);
+GZIP_API ptrdiff_t gzip_compress(int format, void *dst, size_t ndst, const void *src, size_t nsrc);
 /* returns malloc'd ptr or null for error */
 GZIP_API void* gzip_uncompress(int format, const void *src, size_t nsrc, size_t *nresult);
 
@@ -56,7 +56,7 @@ gzip_window(int format) {
 }
 
 /* compression bound */
-GZIP_API ssize_t
+GZIP_API ptrdiff_t
 gzip_bound(int format, size_t nsrc) {
     z_stream s;
     s.next_in = 0;
@@ -69,20 +69,20 @@ gzip_bound(int format, size_t nsrc) {
 
     int window = gzip_window(format);
     deflateInit2(&s, GZIP_LEVEL, Z_DEFLATED, window, 9, Z_DEFAULT_STRATEGY);
-    int bound = deflateBound(&s, nsrc);
+    ptrdiff_t bound = (ptrdiff_t)deflateBound(&s, (uLong)nsrc);
     deflateEnd(&s);
     return bound;
 }
 
-GZIP_API ssize_t
+GZIP_API ptrdiff_t
 gzip_compress(int format, void *dst, size_t ndst, const void *src, size_t nsrc) {
     z_stream s = {0};
     int e;
 
     s.next_in = (unsigned char*)src;
-    s.avail_in = nsrc;
+    s.avail_in = (unsigned)nsrc;
     s.next_out = (unsigned char*)dst;
-    s.avail_out = ndst;
+    s.avail_out = (unsigned)ndst;
 
     int window = gzip_window(format);
     deflateInit2(&s, GZIP_LEVEL, Z_DEFLATED, window, 9, Z_DEFAULT_STRATEGY);
@@ -95,7 +95,7 @@ gzip_compress(int format, void *dst, size_t ndst, const void *src, size_t nsrc) 
 
     ndst = s.total_out;
     deflateEnd(&s);
-    return (ssize_t)ndst;
+    return (ptrdiff_t)ndst;
 }
 
 GZIP_API void*
@@ -105,9 +105,9 @@ gzip_uncompress(int format, const void *src, size_t nsrc, size_t *nresult) {
     assert(dst);
     z_stream s = {0};
     s.next_in = (Bytef*)src;
-    s.avail_in = nsrc;
+    s.avail_in = (unsigned)nsrc;
     s.next_out = (Bytef*)dst;
-    s.avail_out = ndst;
+    s.avail_out = (unsigned)ndst;
     size_t output = 0;
 
     int window = gzip_window(format);
@@ -122,7 +122,7 @@ gzip_uncompress(int format, const void *src, size_t nsrc, size_t *nresult) {
             if(!s.avail_out) {
                 ndst *= 2;
                 dst = (char*)realloc(dst, ndst);
-                s.avail_out = ndst - output;
+                s.avail_out = (unsigned)(ndst - output);
                 s.next_out = (Bytef*)(dst + output);
             }
             break;
@@ -150,7 +150,7 @@ int main(int argc, char **argv) {
     size_t nbuf = gzip_bound(format, sizeof test);
     char *buf = (char*)malloc(nbuf);
     assert(buf);
-    ssize_t n = gzip_compress(format, buf, nbuf, test, sizeof test);
+    ptrdiff_t n = gzip_compress(format, buf, nbuf, test, sizeof test);
     assert(n >= 0);
     size_t ndecomp;
     char *decomp = (char*)gzip_uncompress(format, buf, n, &ndecomp);

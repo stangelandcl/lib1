@@ -114,3 +114,11 @@ varint:
 	$(CXX) $(OPT) -x c++ -DVARINT_EXAMPLE varint.h -lm && ./a.out
 	$(CC) $(OPT) -x c -DVARINT_EXAMPLE varint.h -lm && ./a.out
 
+wkb:
+	$(CXX) $(OPT) -x c++ -DWKB_EXAMPLE wkb.h && ./a.out
+	$(CC) $(OPT) -x c -DWKB_EXAMPLE wkb.h && ./a.out
+
+wkt:
+	$(CXX) $(OPT) -x c++ -DWKT_EXAMPLE wkt.h -lm && ./a.out
+	$(CC) $(OPT) -x c -DWKT_EXAMPLE wkt.h -lm && ./a.out
+

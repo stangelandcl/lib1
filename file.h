@@ -31,7 +31,6 @@ FILE_API int file_writebytes(const char *filename, const void *bytes, size_t n);
 #endif
 
 
-
 #ifdef FILE_IMPLEMENTATION
 #include <stdio.h>
 #include <stdlib.h>
